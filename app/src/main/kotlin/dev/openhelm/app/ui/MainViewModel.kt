@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import android.view.Surface
 import dev.openhelm.app.config.EndpointStore
+import dev.openhelm.app.config.RememberedDisplay
 import dev.openhelm.app.discovery.MfdDiscovery
 import dev.openhelm.app.rrc.ConnectionState
 import dev.openhelm.app.rrc.RrcClient
@@ -46,15 +47,27 @@ class MainViewModel @Inject constructor(
     val videoState: StateFlow<VideoState> = player.state
     val videoStats: StateFlow<VideoStats> = player.stats
 
-    /** Displays connected to before, most-recent first, for one-tap reconnect. */
-    val remembered: StateFlow<List<MfdEndpoint>> =
+    /** Displays connected to before, most-recent first, for one-tap reconnect and naming. */
+    val remembered: StateFlow<List<RememberedDisplay>> =
         store.rememberedDisplays.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /** True once a search has run its window and turned up nothing — drives the §5.1 dead-end-free failure screen. */
     private val _discoveryTimedOut = MutableStateFlow(false)
     val discoveryTimedOut: StateFlow<Boolean> = _discoveryTimedOut.asStateFlow()
 
+    /**
+     * True while the launch flow is trying the remembered displays, before any scan. The scan runs
+     * only if this finishes without connecting — the user asked for recents to be tried first.
+     */
+    private val _probingRecents = MutableStateFlow(false)
+    val probingRecents: StateFlow<Boolean> = _probingRecents.asStateFlow()
+
+    /** The settings screen (naming/forgetting remembered displays) is a simple modal-less route. */
+    var settingsOpen by mutableStateOf(false)
+        private set
+
     private var discoveryTimeoutJob: Job? = null
+    private var probeJob: Job? = null
 
     var manualText by mutableStateOf("")
         private set
@@ -69,17 +82,13 @@ class MainViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            store.manualAddress.first()?.let { saved ->
-                if (manualText.isEmpty()) manualText = saved
-            }
             if (store.rtpTransport.first() == "tcp") transport = RtpTransport.TCP_INTERLEAVED
 
-            // Auto-reconnect to the last display on launch. The user lands straight on the remote,
-            // "Connecting…", with Disconnect as the visible cancel — the common case on a boat is
-            // the same display every time, so this saves the discovery ritual.
-            store.rememberedDisplays.first().firstOrNull()?.let { last ->
-                if (connection.value is ConnectionState.Idle) rrc.connect(last)
-            }
+            // Auto-reconnect on launch: try the remembered displays in priority order (not just
+            // the most recent) and connect to the first that answers. Only if none answer does the
+            // normal scan run — which it does by itself, because staying Idle mounts the discovery
+            // screen. The user lands on the remote, "Connecting…", with Disconnect as the cancel.
+            startRecentProbe()
         }
 
         // Persist every endpoint that actually connects, so it becomes a one-tap option next time.
@@ -88,6 +97,45 @@ class MainViewModel @Inject constructor(
                 if (state is ConnectionState.Connected) store.remember(state.endpoint)
             }
         }
+    }
+
+    private fun startRecentProbe() {
+        probeJob = viewModelScope.launch {
+            val recents = store.rememberedDisplays.first()
+            if (recents.isEmpty() || connection.value !is ConnectionState.Idle) return@launch
+            _probingRecents.value = true
+            try {
+                val reachable = rrc.firstReachable(recents.map { it.endpoint })
+                if (reachable != null && connection.value is ConnectionState.Idle) {
+                    rrc.connect(reachable)
+                }
+            } finally {
+                _probingRecents.value = false
+            }
+        }
+    }
+
+    /** Abandon the launch probe and fall straight through to discovery / manual entry. */
+    fun skipRecentProbe() {
+        probeJob?.cancel()
+        probeJob = null
+        _probingRecents.value = false
+    }
+
+    fun openSettings() {
+        settingsOpen = true
+    }
+
+    fun closeSettings() {
+        settingsOpen = false
+    }
+
+    fun renameDisplay(host: String, name: String) {
+        viewModelScope.launch { store.rename(host, name) }
+    }
+
+    fun forgetDisplay(host: String) {
+        viewModelScope.launch { store.forget(host) }
     }
 
     fun onManualTextChange(text: String) {
@@ -145,8 +193,9 @@ class MainViewModel @Inject constructor(
     }
 
     fun connectManual() {
+        // A manual address is remembered only if it actually connects (via the state collector in
+        // init), so a mistyped address never lingers in the Recent list.
         val endpoint = manualEndpoint ?: return
-        viewModelScope.launch { store.saveManualAddress(manualText.trim()) }
         rrc.connect(endpoint)
     }
 

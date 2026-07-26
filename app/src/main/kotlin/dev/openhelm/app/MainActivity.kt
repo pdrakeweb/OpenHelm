@@ -16,7 +16,9 @@ import dev.openhelm.app.rrc.ConnectionState
 import dev.openhelm.app.ui.DiscoveryScreen
 import dev.openhelm.app.ui.MainViewModel
 import dev.openhelm.app.ui.OpenHelmTheme
+import dev.openhelm.app.ui.RecentProbeScreen
 import dev.openhelm.app.ui.RemoteScreen
+import dev.openhelm.app.ui.SettingsScreen
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
@@ -39,8 +41,12 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun AppRoot(viewModel: MainViewModel = viewModel()) {
     val state by viewModel.connection.collectAsStateWithLifecycle()
-    when (state) {
-        ConnectionState.Idle -> DiscoveryScreen(viewModel)
-        else -> RemoteScreen(viewModel, state)
+    val probingRecents by viewModel.probingRecents.collectAsStateWithLifecycle()
+
+    when {
+        state !is ConnectionState.Idle -> RemoteScreen(viewModel, state)
+        viewModel.settingsOpen -> SettingsScreen(viewModel)
+        probingRecents -> RecentProbeScreen(viewModel)
+        else -> DiscoveryScreen(viewModel)
     }
 }

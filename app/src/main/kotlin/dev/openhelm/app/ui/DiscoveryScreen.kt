@@ -54,7 +54,16 @@ fun DiscoveryScreen(viewModel: MainViewModel) {
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("OpenHelm", style = MaterialTheme.typography.headlineMedium)
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("OpenHelm", style = MaterialTheme.typography.headlineMedium)
+            if (remembered.isNotEmpty()) {
+                TextButton(onClick = viewModel::openSettings) { Text("Displays") }
+            }
+        }
 
         OutlinedTextField(
             value = viewModel.manualText,
@@ -111,8 +120,12 @@ fun DiscoveryScreen(viewModel: MainViewModel) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                items(remembered, key = { "recent-${it.host}" }) { endpoint ->
-                    EndpointCard(endpoint, onConnect = { viewModel.connect(endpoint) })
+                items(remembered, key = { "recent-${it.endpoint.host}" }) { display ->
+                    EndpointCard(
+                        title = display.label,
+                        endpoint = display.endpoint,
+                        onConnect = { viewModel.connect(display.endpoint) },
+                    )
                 }
             }
             if (discovered.isNotEmpty()) {
@@ -124,7 +137,11 @@ fun DiscoveryScreen(viewModel: MainViewModel) {
                     )
                 }
                 items(discovered, key = { "found-${it.host}" }) { endpoint ->
-                    EndpointCard(endpoint, onConnect = { viewModel.connect(endpoint) })
+                    EndpointCard(
+                        title = endpoint.model ?: "Display",
+                        endpoint = endpoint,
+                        onConnect = { viewModel.connect(endpoint) },
+                    )
                 }
             }
         }
@@ -168,17 +185,14 @@ private fun DiscoveryStatus(
 }
 
 @Composable
-private fun EndpointCard(endpoint: MfdEndpoint, onConnect: () -> Unit) {
+private fun EndpointCard(title: String, endpoint: MfdEndpoint, onConnect: () -> Unit) {
     Card(
         onClick = onConnect,
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                endpoint.model ?: "Display",
-                style = MaterialTheme.typography.titleMedium,
-            )
+            Text(title, style = MaterialTheme.typography.titleMedium)
             Text(
                 "${endpoint.host} · control ${endpoint.rrcPort} · video ${endpoint.rtspPort}",
                 style = MaterialTheme.typography.bodySmall,

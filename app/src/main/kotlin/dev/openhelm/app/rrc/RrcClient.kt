@@ -79,6 +79,36 @@ class RrcClient @Inject constructor(
         }
     }
 
+    /**
+     * Try the given endpoints in order and return the first that accepts a control-socket
+     * connection within [timeoutMs], or null if none do. Used at launch to pick which remembered
+     * display to reconnect to before falling back to a scan — bounded and ordered, so priority
+     * (most-recent first) is honoured and a long list of dead addresses cannot hang startup.
+     *
+     * This only probes reachability; it opens and immediately closes each socket and does not
+     * start the connection loop. Binds the process to Wi-Fi first, like every other connect path.
+     */
+    suspend fun firstReachable(endpoints: List<MfdEndpoint>, timeoutMs: Int = PROBE_TIMEOUT_MS): MfdEndpoint? {
+        if (endpoints.isEmpty()) return null
+        val network = try {
+            wifi.bind()
+        } catch (e: WifiUnavailableException) {
+            return null
+        }
+        for (endpoint in endpoints) {
+            if (!currentCoroutineContext().isActive) return null
+            try {
+                network.socketFactory.createSocket().use { socket ->
+                    socket.connect(InetSocketAddress(endpoint.host, endpoint.rrcPort), timeoutMs)
+                }
+                return endpoint
+            } catch (e: IOException) {
+                // Unreachable or refused — try the next remembered display.
+            }
+        }
+        return null
+    }
+
     /** Stop the loop and return to [ConnectionState.Idle]. */
     fun disconnect() {
         connectionJob?.cancel()
@@ -177,6 +207,7 @@ class RrcClient @Inject constructor(
     private companion object {
         const val FRAME_QUEUE = 64
         const val CONNECT_TIMEOUT_MS = 45_000
+        const val PROBE_TIMEOUT_MS = 3_000
         const val INITIAL_BACKOFF_MS = 1_000L
         const val MAX_BACKOFF_MS = 15_000L
     }
