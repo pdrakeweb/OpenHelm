@@ -15,6 +15,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,14 +31,17 @@ import dev.openhelm.app.video.RtpTransport
 import dev.openhelm.protocol.MfdEndpoint
 
 /**
- * The entry screen. Manual address entry sits above the discovered list and is always visible:
- * mDNS on boat Wi-Fi fails often enough that typing the address is a normal way in, not a
- * fallback buried behind a failure.
+ * The entry screen. Discovery runs on its own, but it never dead-ends: manual address entry sits
+ * on the same screen always, remembered displays offer one-tap reconnect, and a search that turns
+ * up nothing resolves to a plain-language "couldn't find a display" with a way forward — not an
+ * endless spinner and not a modal that quits the app on an outside tap.
  */
 @Composable
 fun DiscoveryScreen(viewModel: MainViewModel) {
     val discovered by viewModel.discovered.collectAsStateWithLifecycle()
     val searching by viewModel.searching.collectAsStateWithLifecycle()
+    val timedOut by viewModel.discoveryTimedOut.collectAsStateWithLifecycle()
+    val remembered by viewModel.remembered.collectAsStateWithLifecycle()
 
     DisposableEffect(Unit) {
         viewModel.startDiscovery()
@@ -75,17 +79,12 @@ fun DiscoveryScreen(viewModel: MainViewModel) {
             Text("Connect")
         }
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                if (searching) "Searching for displays…" else "Discovery stopped",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (searching) {
-                Spacer(Modifier.size(12.dp))
-                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-            }
-        }
+        DiscoveryStatus(
+            searching = searching,
+            timedOut = timedOut,
+            found = discovered.isNotEmpty(),
+            onSearchAgain = viewModel::startDiscovery,
+        )
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -104,15 +103,72 @@ fun DiscoveryScreen(viewModel: MainViewModel) {
         }
 
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(discovered, key = { it.host }) { endpoint ->
-                DiscoveredCard(endpoint, onConnect = { viewModel.connect(endpoint) })
+            if (remembered.isNotEmpty()) {
+                item {
+                    Text(
+                        "Recent",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                items(remembered, key = { "recent-${it.host}" }) { endpoint ->
+                    EndpointCard(endpoint, onConnect = { viewModel.connect(endpoint) })
+                }
+            }
+            if (discovered.isNotEmpty()) {
+                item {
+                    Text(
+                        "Found on the network",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                items(discovered, key = { "found-${it.host}" }) { endpoint ->
+                    EndpointCard(endpoint, onConnect = { viewModel.connect(endpoint) })
+                }
             }
         }
     }
 }
 
 @Composable
-private fun DiscoveredCard(endpoint: MfdEndpoint, onConnect: () -> Unit) {
+private fun DiscoveryStatus(
+    searching: Boolean,
+    timedOut: Boolean,
+    found: Boolean,
+    onSearchAgain: () -> Unit,
+) {
+    when {
+        searching -> Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Searching for displays…",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.size(12.dp))
+            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+        }
+
+        timedOut && !found -> Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Couldn't find a display", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Some boat networks block automatic discovery. If you know the display's " +
+                        "address, enter it above — that's a normal way to connect, not a fallback.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedButton(onClick = onSearchAgain) { Text("Search again") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EndpointCard(endpoint: MfdEndpoint, onConnect: () -> Unit) {
     Card(
         onClick = onConnect,
         modifier = Modifier.fillMaxWidth(),

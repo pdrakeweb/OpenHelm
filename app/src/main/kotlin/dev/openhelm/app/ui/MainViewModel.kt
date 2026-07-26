@@ -22,8 +22,14 @@ import dev.openhelm.protocol.TouchGesture
 import dev.openhelm.protocol.normalise
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 @HiltViewModel
@@ -39,6 +45,16 @@ class MainViewModel @Inject constructor(
     val searching: StateFlow<Boolean> = discovery.searching
     val videoState: StateFlow<VideoState> = player.state
     val videoStats: StateFlow<VideoStats> = player.stats
+
+    /** Displays connected to before, most-recent first, for one-tap reconnect. */
+    val remembered: StateFlow<List<MfdEndpoint>> =
+        store.rememberedDisplays.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** True once a search has run its window and turned up nothing — drives the §5.1 dead-end-free failure screen. */
+    private val _discoveryTimedOut = MutableStateFlow(false)
+    val discoveryTimedOut: StateFlow<Boolean> = _discoveryTimedOut.asStateFlow()
+
+    private var discoveryTimeoutJob: Job? = null
 
     var manualText by mutableStateOf("")
         private set
@@ -57,6 +73,20 @@ class MainViewModel @Inject constructor(
                 if (manualText.isEmpty()) manualText = saved
             }
             if (store.rtpTransport.first() == "tcp") transport = RtpTransport.TCP_INTERLEAVED
+
+            // Auto-reconnect to the last display on launch. The user lands straight on the remote,
+            // "Connecting…", with Disconnect as the visible cancel — the common case on a boat is
+            // the same display every time, so this saves the discovery ritual.
+            store.rememberedDisplays.first().firstOrNull()?.let { last ->
+                if (connection.value is ConnectionState.Idle) rrc.connect(last)
+            }
+        }
+
+        // Persist every endpoint that actually connects, so it becomes a one-tap option next time.
+        viewModelScope.launch {
+            rrc.state.collect { state ->
+                if (state is ConnectionState.Connected) store.remember(state.endpoint)
+            }
         }
     }
 
@@ -85,8 +115,30 @@ class MainViewModel @Inject constructor(
             return null
         }
 
-    fun startDiscovery() = discovery.start()
-    fun stopDiscovery() = discovery.stop()
+    /**
+     * Begin (or restart) discovery, arming a timeout. mDNS is routinely blocked or flaky on boat
+     * Wi-Fi, so if the search window elapses with nothing found, [discoveryTimedOut] flips and the
+     * UI offers a real way forward — search again, or the always-present manual entry — rather
+     * than an endless spinner.
+     */
+    fun startDiscovery() {
+        _discoveryTimedOut.value = false
+        discovery.start()
+        discoveryTimeoutJob?.cancel()
+        discoveryTimeoutJob = viewModelScope.launch {
+            delay(DISCOVERY_WINDOW_MS)
+            if (discovered.value.isEmpty()) {
+                discovery.stop()
+                _discoveryTimedOut.value = true
+            }
+        }
+    }
+
+    fun stopDiscovery() {
+        discoveryTimeoutJob?.cancel()
+        discoveryTimeoutJob = null
+        discovery.stop()
+    }
 
     fun connect(endpoint: MfdEndpoint) {
         rrc.connect(endpoint)
@@ -184,5 +236,11 @@ class MainViewModel @Inject constructor(
         is ConnectionState.Connecting -> s.endpoint
         is ConnectionState.Reconnecting -> s.endpoint
         ConnectionState.Idle -> null
+    }
+
+    private companion object {
+        // Long enough for a healthy network to answer, short enough not to feel hung. The manual
+        // field is visible the whole time, so this is a nudge toward it, not a wall.
+        const val DISCOVERY_WINDOW_MS = 12_000L
     }
 }

@@ -16,6 +16,7 @@
         android:label="OpenHelm"
         android:icon="@mipmap/ic_launcher"
         android:theme="@style/Theme.OpenHelm"
+        android:enableOnBackInvokedCallback="true"
         android:supportsRtl="true">
 
         <activity
