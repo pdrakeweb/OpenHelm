@@ -4,7 +4,13 @@ Everything OpenHelm needs to talk to a Wi-Fi marine multifunction display, state
 bytes. Obtained by observing a device we own; contains no vendor code. See
 [../CLEAN-ROOM.md](../CLEAN-ROOM.md).
 
-Reference device: **Raymarine E9**, firmware as shipped, on its own Wi-Fi access point.
+Reference device: a **Raymarine e95** (New e-Series, HybridTouch — touchscreen plus keypad),
+firmware as shipped, on its own Wi-Fi access point.
+
+> Note: this unit advertises `raymarine-mfd-model=E9`. That string is **abbreviated and does not
+> identify the hardware** — it looks like the older, keypad-only E90W/E120W generation, which it is
+> not. The part number in `raymarine-mfd-serial` (**E70021**) is the reliable identifier. Do not
+> infer a display's capabilities from the model TXT record.
 
 ---
 
@@ -132,13 +138,16 @@ y = (event.y - yOffset) / (viewHeight * scale) * 65535
 Out-of-range points should be dropped or clamped, never wrapped. A tap is `down` + `up` at one
 point; a drag is `down` → *n* × `move` → `up`.
 
-> **Support is unconfirmed.** This opcode was found in a companion app for *tablets*, and a client
-> emitting it has been verified frame-by-frame against a simulator — but not against real hardware.
-> The reference E9 is a **non-touch** display (its own front panel is keys and a rotary), so it may
-> ignore opcode 3 entirely, and touch may be a feature of touch-capable models only.
+> **Support is unconfirmed, but expected.** This opcode was found in a companion app for *tablets*,
+> and a client emitting it has been verified frame-by-frame against a simulator — not yet against
+> real hardware.
 >
-> **Always keep the key-based cursor path (§3.2) as a fallback.** To test a device: send a `down`
-> and `up` at a known position and see whether the cursor moves there.
+> The reference unit is a **HybridTouch** display: it has a touchscreen as well as a keypad. Since
+> the panel accepts touch natively there is no obvious reason for the remote path to be gated off.
+>
+> **Always keep the key-based cursor path (§3.2) as a fallback**, because other models in the family
+> genuinely are keypad-only. To test a device: send a `down` and `up` at a known position and see
+> whether the cursor moves there.
 
 ## 4. What the device's network does *not* give you
 
