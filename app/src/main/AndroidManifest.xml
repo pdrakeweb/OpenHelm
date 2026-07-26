@@ -7,6 +7,9 @@
     <!-- bindProcessToNetwork: the process must be pinned to the Wi-Fi network before any socket
          opens, or traffic routes over cellular and the MFD is unreachable. -->
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- Multicast lock: many devices drop mDNS multicast unless one is held during discovery. -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
     <application
         android:name=".OpenHelmApplication"

@@ -1,10 +1,12 @@
 package dev.openhelm.app.ui
 
 import androidx.compose.foundation.background
+import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -27,6 +29,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -52,22 +55,28 @@ fun MfdKeyButton(
     onUp: () -> Unit,
     modifier: Modifier = Modifier,
     size: Dp = 64.dp,
+    width: Dp = size,
     content: @Composable (pressed: Boolean) -> Unit,
 ) {
     var pressed by remember { mutableStateOf(false) }
+    val view = LocalView.current
     val background =
         if (pressed) MaterialTheme.colorScheme.primary
         else MaterialTheme.colorScheme.surfaceVariant
 
     Box(
         modifier = modifier
-            .size(size)
+            .width(width)
+            .height(size)
             .clip(MaterialTheme.shapes.medium)
             .background(background)
             .pointerInput(Unit) {
                 awaitEachGesture {
                     awaitFirstDown().consume()
                     pressed = true
+                    // Haptic on contact: underway, eyes are on the water, and a felt press is
+                    // the only confirmation the finger landed.
+                    view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                     onDown()
                     try {
                         waitForUpOrCancellation()
@@ -93,8 +102,9 @@ fun LabelKey(
     onUp: () -> Unit,
     modifier: Modifier = Modifier,
     size: Dp = 64.dp,
+    width: Dp = size,
 ) {
-    MfdKeyButton(onDown = onDown, onUp = onUp, modifier = modifier, size = size) { pressed ->
+    MfdKeyButton(onDown = onDown, onUp = onUp, modifier = modifier, size = size, width = width) { pressed ->
         Text(
             text = label,
             color = if (pressed) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
@@ -142,19 +152,10 @@ fun ArrowKey(
     }
 }
 
-/** How the two key clusters sit relative to each other. */
-enum class KeypadArrangement {
-    /** Side by side — the full-screen control-only layout. */
-    WIDE,
-
-    /** D-pad above the named keys — for the narrow panel beside the video. */
-    STACKED,
-}
-
 /**
- * The keypad: a directional cluster with OK in the middle, and the MFD's named keys beside it.
- * The grouping mirrors the *hardware* front panel's functions — a fact of the device, not a
- * copied layout.
+ * The full-screen keypad, for the control-only remote mode: a directional cluster with OK in the
+ * middle, and the MFD's named keys beside it. The grouping mirrors the *hardware* front panel's
+ * functions — a fact of the device, not a copied layout.
  */
 @Composable
 fun Keypad(
@@ -162,26 +163,14 @@ fun Keypad(
     onKeyUp: (MfdKey) -> Unit,
     modifier: Modifier = Modifier,
     keySize: Dp = 64.dp,
-    arrangement: KeypadArrangement = KeypadArrangement.WIDE,
 ) {
-    when (arrangement) {
-        KeypadArrangement.WIDE -> Row(
-            modifier = modifier,
-            horizontalArrangement = Arrangement.spacedBy(24.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            DirectionCluster(onKeyDown, onKeyUp, keySize)
-            NamedKeyCluster(onKeyDown, onKeyUp, keySize)
-        }
-
-        KeypadArrangement.STACKED -> Column(
-            modifier = modifier,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            DirectionCluster(onKeyDown, onKeyUp, keySize)
-            NamedKeyCluster(onKeyDown, onKeyUp, keySize)
-        }
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(24.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        DirectionCluster(onKeyDown, onKeyUp, keySize)
+        NamedKeyCluster(onKeyDown, onKeyUp, keySize)
     }
 }
 

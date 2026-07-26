@@ -18,6 +18,8 @@ import dev.openhelm.protocol.KeyAction
 import dev.openhelm.protocol.MfdEndpoint
 import dev.openhelm.protocol.MfdKey
 import dev.openhelm.protocol.Rrc
+import dev.openhelm.protocol.TouchGesture
+import dev.openhelm.protocol.normalise
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.StateFlow
@@ -62,9 +64,26 @@ class MainViewModel @Inject constructor(
         manualText = text
     }
 
-    /** Null when [manualText] is not a valid compact address. Drives the Connect button. */
+    /**
+     * The endpoint [manualText] describes, or null. A bare address (`192.168.1.7`) is enough:
+     * the ports, path and version below are what every captured unit uses, and nobody should
+     * have to type them. The full compact form still works for unusual setups.
+     */
     val manualEndpoint: MfdEndpoint?
-        get() = MfdEndpoint.parse(manualText)
+        get() {
+            val text = manualText.trim()
+            MfdEndpoint.parse(text)?.let { return it }
+            if (text.isNotEmpty() && !text.contains(':') && !text.contains(' ')) {
+                return MfdEndpoint(
+                    host = text,
+                    rtspPort = 8554,
+                    rrcPort = 50000,
+                    rtspPath = "RAYMARINEMFD",
+                    rrcVersion = 0x10, // every captured unit advertises "1.10" -> 0x10
+                )
+            }
+            return null
+        }
 
     fun startDiscovery() = discovery.start()
     fun stopDiscovery() = discovery.stop()
@@ -121,6 +140,43 @@ class MainViewModel @Inject constructor(
     private fun sendButton(key: MfdKey, action: KeyAction) {
         val endpoint = currentEndpoint() ?: return
         rrc.send(Rrc.button(key, action, endpoint.rrcVersion))
+    }
+
+    /**
+     * A dial-ring step. The zoom opcode changes the chart range — it is not a pointer, however
+     * much its payload looks like coordinates. Positive steps zoom in, negative out.
+     */
+    fun zoomStep(step: Int, accumulated: Int) {
+        val endpoint = currentEndpoint() ?: return
+        rrc.send(Rrc.zoom(step, accumulated, endpoint.rrcVersion))
+    }
+
+    // ---- touch on the video -----------------------------------------------------------------
+    // Positions arrive in view pixels and leave normalised 0..65535 across the video area.
+    // The touch opcode is expected to work on HybridTouch units (the reference device is one);
+    // the dial's arrow keys remain the first-class fallback for keypad-only models.
+
+    private var touchGesture: TouchGesture? = null
+
+    fun videoTouchDown(x: Float, y: Float, width: Int, height: Int) {
+        val endpoint = currentEndpoint() ?: return
+        val (nx, ny) = normalise(x, y, width, height)
+        val gesture = TouchGesture(endpoint.rrcVersion)
+        touchGesture = gesture
+        rrc.send(gesture.down(nx, ny))
+    }
+
+    fun videoTouchMove(x: Float, y: Float, width: Int, height: Int) {
+        val gesture = touchGesture ?: return
+        val (nx, ny) = normalise(x, y, width, height)
+        rrc.send(gesture.move(nx, ny))
+    }
+
+    fun videoTouchUp(x: Float, y: Float, width: Int, height: Int) {
+        val gesture = touchGesture ?: return
+        touchGesture = null
+        val (nx, ny) = normalise(x, y, width, height)
+        rrc.send(gesture.up(nx, ny))
     }
 
     private fun currentEndpoint(): MfdEndpoint? = when (val s = connection.value) {

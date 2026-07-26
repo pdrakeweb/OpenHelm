@@ -29,7 +29,11 @@ import dev.openhelm.app.rrc.ConnectionState
  */
 @Composable
 fun RemoteScreen(viewModel: MainViewModel, state: ConnectionState) {
-    BackHandler { viewModel.disconnect() }
+    // Back walks the modes before it tears anything down: full-screen remote → side-by-side →
+    // disconnect. Nothing here exits the app by surprise.
+    BackHandler {
+        if (!viewModel.videoEnabled) viewModel.toggleVideo() else viewModel.disconnect()
+    }
 
     Column(Modifier.fillMaxSize()) {
         StatusBar(viewModel, state)
@@ -40,20 +44,7 @@ fun RemoteScreen(viewModel: MainViewModel, state: ConnectionState) {
                     .fillMaxWidth(),
             ) {
                 VideoPane(viewModel, Modifier.weight(1f).fillMaxHeight())
-                Box(
-                    Modifier
-                        .width(300.dp)
-                        .fillMaxHeight()
-                        .padding(8.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Keypad(
-                        onKeyDown = viewModel::keyDown,
-                        onKeyUp = viewModel::keyUp,
-                        keySize = 56.dp,
-                        arrangement = KeypadArrangement.STACKED,
-                    )
-                }
+                SidePanel(viewModel)
             }
         } else {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {

@@ -57,10 +57,12 @@ fun DiscoveryScreen(viewModel: MainViewModel) {
             onValueChange = viewModel::onManualTextChange,
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Display address") },
-            placeholder = { Text("host:rtspPort:rrcPort:path[:versionHex]") },
+            placeholder = { Text("192.168.131.1") },
             supportingText = {
                 if (viewModel.manualText.isNotBlank() && viewModel.manualEndpoint == null) {
-                    Text("Format: 192.168.131.1:8554:50000:RAYMARINEMFD:10")
+                    Text("Enter the display's IP address — standard ports are filled in for you")
+                } else {
+                    Text("Some boat networks block automatic discovery; entering the address directly is normal")
                 }
             },
             singleLine = true,

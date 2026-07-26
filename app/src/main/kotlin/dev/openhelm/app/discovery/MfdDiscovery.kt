@@ -3,6 +3,7 @@ package dev.openhelm.app.discovery
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
+import android.net.wifi.WifiManager
 import dev.openhelm.app.di.AppScope
 import dev.openhelm.protocol.Discovery
 import dev.openhelm.protocol.MfdEndpoint
@@ -39,6 +40,15 @@ class MfdDiscovery @Inject constructor(
 ) {
     private val nsd = context.getSystemService(NsdManager::class.java)
 
+    /**
+     * Held only while searching: many devices filter multicast in the Wi-Fi driver unless a lock
+     * is held, and mDNS *is* multicast — without this, discovery fails silently on exactly the
+     * hardware where it matters.
+     */
+    private val multicastLock = context.getSystemService(WifiManager::class.java)
+        .createMulticastLock("openhelm-discovery")
+        .apply { setReferenceCounted(false) }
+
     private val _endpoints = MutableStateFlow<List<MfdEndpoint>>(emptyList())
     val endpoints: StateFlow<List<MfdEndpoint>> = _endpoints.asStateFlow()
 
@@ -68,6 +78,7 @@ class MfdDiscovery @Inject constructor(
         }
         _endpoints.value = emptyList()
         _searching.value = true
+        multicastLock.acquire()
 
         resolveWorker = scope.launch(Dispatchers.IO) {
             for (info in resolveQueue) {
@@ -112,6 +123,7 @@ class MfdDiscovery @Inject constructor(
         listeners = emptyList()
         resolveWorker?.cancel()
         resolveWorker = null
+        if (multicastLock.isHeld) multicastLock.release()
         _searching.value = false
     }
 
