@@ -17,6 +17,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -25,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.openhelm.app.video.RtpTransport
 import dev.openhelm.protocol.MfdEndpoint
 
 /**
@@ -80,6 +82,22 @@ fun DiscoveryScreen(viewModel: MainViewModel) {
             if (searching) {
                 Spacer(Modifier.size(12.dp))
                 CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+            }
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Video transport:",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(onClick = viewModel::toggleTransport) {
+                Text(
+                    when (viewModel.transport) {
+                        RtpTransport.UDP -> "UDP (displays require this)"
+                        RtpTransport.TCP_INTERLEAVED -> "TCP — simulator only, hangs a real display"
+                    },
+                )
             }
         }
 

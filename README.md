@@ -62,7 +62,7 @@ is what makes coarse cursor movement possible. A synthetic release would break i
 |---|---|---|
 | 0 | Protocol: framing, keys, zoom, touch, discovery parsing | ✅ done, tested |
 | 1 | Control-only app: discovery, manual address, Compose keypad | ✅ built; verified against the simulator, on-water pending |
-| 2 | Video: RTSP/RTP + `MediaCodec`, side-by-side layout, latency overlay | |
+| 2 | Video: RTSP/RTP + `MediaCodec`, side-by-side layout, latency overlay | ✅ built; ~0 s behind the simulated source (±0.5 s rig), real-display UDP run pending |
 | 3 | Touch and gestures: tap/drag to the MFD, pinch/pan locally | |
 | 4 | Structured data — the MFD also exposes an AMQP broker (unexplored) | speculative |
 

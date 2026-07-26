@@ -142,6 +142,15 @@ fun ArrowKey(
     }
 }
 
+/** How the two key clusters sit relative to each other. */
+enum class KeypadArrangement {
+    /** Side by side — the full-screen control-only layout. */
+    WIDE,
+
+    /** D-pad above the named keys — for the narrow panel beside the video. */
+    STACKED,
+}
+
 /**
  * The keypad: a directional cluster with OK in the middle, and the MFD's named keys beside it.
  * The grouping mirrors the *hardware* front panel's functions — a fact of the device, not a
@@ -153,47 +162,79 @@ fun Keypad(
     onKeyUp: (MfdKey) -> Unit,
     modifier: Modifier = Modifier,
     keySize: Dp = 64.dp,
+    arrangement: KeypadArrangement = KeypadArrangement.WIDE,
+) {
+    when (arrangement) {
+        KeypadArrangement.WIDE -> Row(
+            modifier = modifier,
+            horizontalArrangement = Arrangement.spacedBy(24.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            DirectionCluster(onKeyDown, onKeyUp, keySize)
+            NamedKeyCluster(onKeyDown, onKeyUp, keySize)
+        }
+
+        KeypadArrangement.STACKED -> Column(
+            modifier = modifier,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            DirectionCluster(onKeyDown, onKeyUp, keySize)
+            NamedKeyCluster(onKeyDown, onKeyUp, keySize)
+        }
+    }
+}
+
+/** Hold to sweep the cursor (the MFD auto-repeats), tap for ~1 px. */
+@Composable
+private fun DirectionCluster(
+    onKeyDown: (MfdKey) -> Unit,
+    onKeyUp: (MfdKey) -> Unit,
+    keySize: Dp,
 ) {
     fun handlers(key: MfdKey): Pair<() -> Unit, () -> Unit> =
         Pair({ onKeyDown(key) }, { onKeyUp(key) })
 
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(24.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        // Directional cluster: hold to sweep the cursor (the MFD auto-repeats), tap for ~1px.
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            handlers(MfdKey.UP).let { (d, u) -> ArrowKey(ArrowDirection.UP, d, u, size = keySize) }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                handlers(MfdKey.LEFT).let { (d, u) -> ArrowKey(ArrowDirection.LEFT, d, u, size = keySize) }
-                handlers(MfdKey.OK).let { (d, u) -> LabelKey("OK", d, u, size = keySize) }
-                handlers(MfdKey.RIGHT).let { (d, u) -> ArrowKey(ArrowDirection.RIGHT, d, u, size = keySize) }
-            }
-            handlers(MfdKey.DOWN).let { (d, u) -> ArrowKey(ArrowDirection.DOWN, d, u, size = keySize) }
+        handlers(MfdKey.UP).let { (d, u) -> ArrowKey(ArrowDirection.UP, d, u, size = keySize) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            handlers(MfdKey.LEFT).let { (d, u) -> ArrowKey(ArrowDirection.LEFT, d, u, size = keySize) }
+            handlers(MfdKey.OK).let { (d, u) -> LabelKey("OK", d, u, size = keySize) }
+            handlers(MfdKey.RIGHT).let { (d, u) -> ArrowKey(ArrowDirection.RIGHT, d, u, size = keySize) }
         }
+        handlers(MfdKey.DOWN).let { (d, u) -> ArrowKey(ArrowDirection.DOWN, d, u, size = keySize) }
+    }
+}
 
-        // Named keys, arranged by how often they are reached for.
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                handlers(MfdKey.RANGE_IN).let { (d, u) -> LabelKey("+", d, u, size = keySize) }
-                handlers(MfdKey.RANGE_OUT).let { (d, u) -> LabelKey("−", d, u, size = keySize) }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                handlers(MfdKey.MENU).let { (d, u) -> LabelKey("Menu", d, u, size = keySize) }
-                handlers(MfdKey.HOME).let { (d, u) -> LabelKey("Home", d, u, size = keySize) }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                handlers(MfdKey.BACK).let { (d, u) -> LabelKey("Back", d, u, size = keySize) }
-                handlers(MfdKey.SWITCH).let { (d, u) -> LabelKey("Pane", d, u, size = keySize) }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                handlers(MfdKey.WPT).let { (d, u) -> LabelKey("WPT", d, u, size = keySize) }
-                Box(Modifier.width(keySize))
-            }
+/** The named keys, arranged by how often they are reached for. */
+@Composable
+private fun NamedKeyCluster(
+    onKeyDown: (MfdKey) -> Unit,
+    onKeyUp: (MfdKey) -> Unit,
+    keySize: Dp,
+) {
+    fun handlers(key: MfdKey): Pair<() -> Unit, () -> Unit> =
+        Pair({ onKeyDown(key) }, { onKeyUp(key) })
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            handlers(MfdKey.RANGE_IN).let { (d, u) -> LabelKey("+", d, u, size = keySize) }
+            handlers(MfdKey.RANGE_OUT).let { (d, u) -> LabelKey("−", d, u, size = keySize) }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            handlers(MfdKey.MENU).let { (d, u) -> LabelKey("Menu", d, u, size = keySize) }
+            handlers(MfdKey.HOME).let { (d, u) -> LabelKey("Home", d, u, size = keySize) }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            handlers(MfdKey.BACK).let { (d, u) -> LabelKey("Back", d, u, size = keySize) }
+            handlers(MfdKey.SWITCH).let { (d, u) -> LabelKey("Pane", d, u, size = keySize) }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            handlers(MfdKey.WPT).let { (d, u) -> LabelKey("WPT", d, u, size = keySize) }
+            Box(Modifier.width(keySize))
         }
     }
 }

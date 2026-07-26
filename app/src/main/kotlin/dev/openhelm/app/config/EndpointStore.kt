@@ -22,11 +22,24 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 class EndpointStore @Inject constructor(@ApplicationContext private val context: Context) {
 
     private val manualAddressKey = stringPreferencesKey("manual_address")
+    private val transportKey = stringPreferencesKey("rtp_transport")
 
     val manualAddress: Flow<String?> =
         context.dataStore.data.map { prefs -> prefs[manualAddressKey] }
 
     suspend fun saveManualAddress(line: String) {
         context.dataStore.edit { prefs -> prefs[manualAddressKey] = line }
+    }
+
+    /**
+     * "tcp" selects the simulator-only interleaved transport; anything else means UDP, the only
+     * transport a real display can serve. Persisted because a development phone points at the
+     * simulator across many sessions.
+     */
+    val rtpTransport: Flow<String?> =
+        context.dataStore.data.map { prefs -> prefs[transportKey] }
+
+    suspend fun saveRtpTransport(value: String) {
+        context.dataStore.edit { prefs -> prefs[transportKey] = value }
     }
 }
