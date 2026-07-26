@@ -35,7 +35,10 @@ import kotlinx.coroutines.launch
  * request makes it accept the session and then deliver nothing, forever. Interleaved mode exists
  * solely for the simulator viewed from an Android emulator, whose NAT drops inbound UDP.
  */
-enum class RtpTransport { UDP, TCP_INTERLEAVED }
+enum class RtpTransport(val label: String) {
+    UDP("UDP"),
+    TCP_INTERLEAVED("TCP (testing only)"),
+}
 
 sealed interface VideoState {
     data object Idle : VideoState

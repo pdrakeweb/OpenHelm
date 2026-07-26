@@ -13,7 +13,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -27,46 +26,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.openhelm.app.config.RememberedDisplay
 
 /**
- * The launch-time reconnect screen: shown while the remembered displays are being tried in order,
- * before any scan. Skipping drops straight to discovery / manual entry, so the user is never stuck
- * waiting on a list of displays that are not aboard.
- */
-@Composable
-fun RecentProbeScreen(viewModel: MainViewModel) {
-    BackHandler { viewModel.skipRecentProbe() }
-
-    Column(
-        Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        CircularProgressIndicator(Modifier.size(40.dp))
-        Spacer(Modifier.size(20.dp))
-        Text("Reconnecting to a recent display…", style = MaterialTheme.typography.bodyLarge)
-        Spacer(Modifier.size(8.dp))
-        Text(
-            "Trying the displays you've used before. If none respond, OpenHelm will search the network.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.size(16.dp))
-        TextButton(onClick = viewModel::skipRecentProbe) { Text("Skip — search or enter an address") }
-    }
-}
-
-/**
  * Naming and forgetting remembered displays. The vendor's model string is abbreviated (`E9` for
  * what is really an e95), so a human name is genuinely useful: this is where "E9" becomes "Helm"
- * or "e95 cockpit". The full endpoint is untouched — only the label the user sees changes.
+ * or "Cockpit". The full endpoint is untouched — only the label the user sees changes, and that
+ * label is all the connect screen shows.
  */
 @Composable
 fun SettingsScreen(viewModel: MainViewModel) {
-    BackHandler { viewModel.closeSettings() }
+    BackHandler { viewModel.backToConnect() }
     val remembered by viewModel.remembered.collectAsStateWithLifecycle()
 
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -75,8 +48,12 @@ fun SettingsScreen(viewModel: MainViewModel) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Displays", style = MaterialTheme.typography.headlineMedium)
-            TextButton(onClick = viewModel::closeSettings) { Text("Done") }
+            Text(
+                "Manage displays",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Light,
+            )
+            TextButton(onClick = viewModel::backToConnect) { Text("Done") }
         }
 
         if (remembered.isEmpty()) {

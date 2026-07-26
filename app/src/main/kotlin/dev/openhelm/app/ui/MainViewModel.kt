@@ -30,8 +30,12 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+
+/** Screens reachable from the connect flow. */
+enum class Route { CONNECT, MANUAL, SETTINGS }
 
 @HiltViewModel
 class MainViewModel @Inject constructor(
@@ -51,23 +55,34 @@ class MainViewModel @Inject constructor(
     val remembered: StateFlow<List<RememberedDisplay>> =
         store.rememberedDisplays.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    /** True once a search has run its window and turned up nothing — drives the §5.1 dead-end-free failure screen. */
+    /** The few most-recent displays the connect screen offers as one-tap buttons. */
+    val recentShortlist: StateFlow<List<RememberedDisplay>> =
+        store.rememberedDisplays
+            .map { it.take(RECENT_BUTTONS) }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** True once a search has run its window and turned up nothing. */
     private val _discoveryTimedOut = MutableStateFlow(false)
     val discoveryTimedOut: StateFlow<Boolean> = _discoveryTimedOut.asStateFlow()
 
     /**
-     * True while the launch flow is trying the remembered displays, before any scan. The scan runs
-     * only if this finishes without connecting — the user asked for recents to be tried first.
+     * True while the launch flow is trying the remembered displays, before the network scan. The
+     * connect screen shows this as part of one continuous "Scanning" state — recents first,
+     * because they are the fastest way to the display that is actually aboard.
      */
     private val _probingRecents = MutableStateFlow(false)
     val probingRecents: StateFlow<Boolean> = _probingRecents.asStateFlow()
 
-    /** The settings screen (naming/forgetting remembered displays) is a simple modal-less route. */
-    var settingsOpen by mutableStateOf(false)
+    /** Which screen is showing. Connect is home; the others are pushed on top of it. */
+    var route by mutableStateOf(Route.CONNECT)
         private set
 
     private var discoveryTimeoutJob: Job? = null
     private var probeJob: Job? = null
+
+    /** Set by an explicit Disconnect; cleared the moment the user asks to connect again. */
+    var autoConnectSuppressed by mutableStateOf(false)
+        private set
 
     var manualText by mutableStateOf("")
         private set
@@ -83,12 +98,6 @@ class MainViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             if (store.rtpTransport.first() == "tcp") transport = RtpTransport.TCP_INTERLEAVED
-
-            // Auto-reconnect on launch: try the remembered displays in priority order (not just
-            // the most recent) and connect to the first that answers. Only if none answer does the
-            // normal scan run — which it does by itself, because staying Idle mounts the discovery
-            // screen. The user lands on the remote, "Connecting…", with Disconnect as the cancel.
-            startRecentProbe()
         }
 
         // Persist every endpoint that actually connects, so it becomes a one-tap option next time.
@@ -97,37 +106,67 @@ class MainViewModel @Inject constructor(
                 if (state is ConnectionState.Connected) store.remember(state.endpoint)
             }
         }
-    }
 
-    private fun startRecentProbe() {
-        probeJob = viewModelScope.launch {
-            val recents = store.rememberedDisplays.first()
-            if (recents.isEmpty() || connection.value !is ConnectionState.Idle) return@launch
-            _probingRecents.value = true
-            try {
-                val reachable = rrc.firstReachable(recents.map { it.endpoint })
-                if (reachable != null && connection.value is ConnectionState.Idle) {
-                    rrc.connect(reachable)
+        // Auto-connect to whatever the scan turns up. These networks carry exactly one display, so
+        // finding one and then asking the user to tap it would be ceremony for its own sake.
+        viewModelScope.launch {
+            discovery.endpoints.collect { found ->
+                val endpoint = found.firstOrNull() ?: return@collect
+                if (connection.value is ConnectionState.Idle && route == Route.CONNECT) {
+                    stopDiscovery()
+                    rrc.connect(endpoint)
                 }
-            } finally {
-                _probingRecents.value = false
             }
         }
     }
 
-    /** Abandon the launch probe and fall straight through to discovery / manual entry. */
+    fun openManual() {
+        route = Route.MANUAL
+    }
+
+    fun openSettings() {
+        route = Route.SETTINGS
+    }
+
+    /** Back to the connect screen from a pushed screen. */
+    fun backToConnect() {
+        route = Route.CONNECT
+    }
+
+    /**
+     * The whole automatic path, in one continuous "scanning" state: try the remembered displays
+     * first (fastest route to the display that is actually aboard), and if none answer, sweep the
+     * network. Either way the user does nothing — a found display is connected to automatically.
+     */
+    fun startAutoConnect() {
+        // An explicit Disconnect must stick. Without this the connect screen would re-mount,
+        // immediately find the display it was just disconnected from, and reconnect — making the
+        // button look broken.
+        if (autoConnectSuppressed) return
+        probeJob?.cancel()
+        probeJob = viewModelScope.launch {
+            val recents = store.rememberedDisplays.first()
+            if (recents.isNotEmpty() && connection.value is ConnectionState.Idle) {
+                _probingRecents.value = true
+                try {
+                    val reachable = rrc.firstReachable(recents.map { it.endpoint })
+                    if (reachable != null && connection.value is ConnectionState.Idle) {
+                        rrc.connect(reachable)
+                        return@launch
+                    }
+                } finally {
+                    _probingRecents.value = false
+                }
+            }
+            if (connection.value is ConnectionState.Idle) startDiscovery()
+        }
+    }
+
+    /** Abandon the launch probe; the network scan carries on. */
     fun skipRecentProbe() {
         probeJob?.cancel()
         probeJob = null
         _probingRecents.value = false
-    }
-
-    fun openSettings() {
-        settingsOpen = true
-    }
-
-    fun closeSettings() {
-        settingsOpen = false
     }
 
     fun renameDisplay(host: String, name: String) {
@@ -189,17 +228,30 @@ class MainViewModel @Inject constructor(
     }
 
     fun connect(endpoint: MfdEndpoint) {
+        autoConnectSuppressed = false
+        stopDiscovery()
         rrc.connect(endpoint)
+    }
+
+    /** Resume automatic connecting after an explicit disconnect — the "Scan again" affordance. */
+    fun resumeAutoConnect() {
+        autoConnectSuppressed = false
+        startAutoConnect()
     }
 
     fun connectManual() {
         // A manual address is remembered only if it actually connects (via the state collector in
-        // init), so a mistyped address never lingers in the Recent list.
+        // init), so a mistyped address never lingers in the recents.
         val endpoint = manualEndpoint ?: return
+        stopDiscovery()
+        route = Route.CONNECT
         rrc.connect(endpoint)
     }
 
     fun disconnect() {
+        autoConnectSuppressed = true
+        probeJob?.cancel()
+        _probingRecents.value = false
         player.stop()
         rrc.disconnect()
     }
@@ -210,13 +262,10 @@ class MainViewModel @Inject constructor(
         // When re-enabled, the surface re-enters composition and onVideoSurfaceReady restarts it.
     }
 
-    fun toggleTransport() {
-        transport = when (transport) {
-            RtpTransport.UDP -> RtpTransport.TCP_INTERLEAVED
-            RtpTransport.TCP_INTERLEAVED -> RtpTransport.UDP
-        }
+    fun selectTransport(choice: RtpTransport) {
+        transport = choice
         viewModelScope.launch {
-            store.saveRtpTransport(if (transport == RtpTransport.TCP_INTERLEAVED) "tcp" else "udp")
+            store.saveRtpTransport(if (choice == RtpTransport.TCP_INTERLEAVED) "tcp" else "udp")
         }
     }
 
@@ -288,8 +337,11 @@ class MainViewModel @Inject constructor(
     }
 
     private companion object {
-        // Long enough for a healthy network to answer, short enough not to feel hung. The manual
-        // field is visible the whole time, so this is a nudge toward it, not a wall.
+        // Long enough for a healthy network to answer, short enough not to feel hung. Manual
+        // connect is always one tap away, so this is a nudge toward it, not a wall.
         const val DISCOVERY_WINDOW_MS = 12_000L
+
+        /** How many remembered displays the connect screen offers as buttons. */
+        const val RECENT_BUTTONS = 4
     }
 }

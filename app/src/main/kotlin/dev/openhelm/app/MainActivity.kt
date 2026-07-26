@@ -13,11 +13,12 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.openhelm.app.rrc.ConnectionState
-import dev.openhelm.app.ui.DiscoveryScreen
+import dev.openhelm.app.ui.ConnectScreen
 import dev.openhelm.app.ui.MainViewModel
+import dev.openhelm.app.ui.ManualConnectScreen
 import dev.openhelm.app.ui.OpenHelmTheme
-import dev.openhelm.app.ui.RecentProbeScreen
 import dev.openhelm.app.ui.RemoteScreen
+import dev.openhelm.app.ui.Route
 import dev.openhelm.app.ui.SettingsScreen
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -41,12 +42,14 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun AppRoot(viewModel: MainViewModel = viewModel()) {
     val state by viewModel.connection.collectAsStateWithLifecycle()
-    val probingRecents by viewModel.probingRecents.collectAsStateWithLifecycle()
 
-    when {
-        state !is ConnectionState.Idle -> RemoteScreen(viewModel, state)
-        viewModel.settingsOpen -> SettingsScreen(viewModel)
-        probingRecents -> RecentProbeScreen(viewModel)
-        else -> DiscoveryScreen(viewModel)
+    if (state !is ConnectionState.Idle) {
+        RemoteScreen(viewModel, state)
+        return
+    }
+    when (viewModel.route) {
+        Route.CONNECT -> ConnectScreen(viewModel)
+        Route.MANUAL -> ManualConnectScreen(viewModel)
+        Route.SETTINGS -> SettingsScreen(viewModel)
     }
 }

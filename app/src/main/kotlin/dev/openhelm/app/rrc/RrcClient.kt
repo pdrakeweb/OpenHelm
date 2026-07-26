@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Connection lifecycle, written only by [RrcClient], observed by the UI. */
 sealed interface ConnectionState {
@@ -88,25 +89,30 @@ class RrcClient @Inject constructor(
      * This only probes reachability; it opens and immediately closes each socket and does not
      * start the connection loop. Binds the process to Wi-Fi first, like every other connect path.
      */
-    suspend fun firstReachable(endpoints: List<MfdEndpoint>, timeoutMs: Int = PROBE_TIMEOUT_MS): MfdEndpoint? {
-        if (endpoints.isEmpty()) return null
+    suspend fun firstReachable(
+        endpoints: List<MfdEndpoint>,
+        timeoutMs: Int = PROBE_TIMEOUT_MS,
+    ): MfdEndpoint? = withContext(Dispatchers.IO) {
+        // Explicitly on IO: these are blocking socket connects, and callers are UI-scoped
+        // coroutines that default to the main dispatcher.
+        if (endpoints.isEmpty()) return@withContext null
         val network = try {
             wifi.bind()
         } catch (e: WifiUnavailableException) {
-            return null
+            return@withContext null
         }
         for (endpoint in endpoints) {
-            if (!currentCoroutineContext().isActive) return null
+            if (!currentCoroutineContext().isActive) return@withContext null
             try {
                 network.socketFactory.createSocket().use { socket ->
                     socket.connect(InetSocketAddress(endpoint.host, endpoint.rrcPort), timeoutMs)
                 }
-                return endpoint
+                return@withContext endpoint
             } catch (e: IOException) {
                 // Unreachable or refused — try the next remembered display.
             }
         }
-        return null
+        null
     }
 
     /** Stop the loop and return to [ConnectionState.Idle]. */
