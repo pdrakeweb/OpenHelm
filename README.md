@@ -4,11 +4,12 @@ An open-source Android remote for Wi-Fi marine multifunction displays — view t
 screen on your phone and drive it from the cockpit.
 
 Compatible with **Raymarine c-Series, e-Series and a-Series** Wi-Fi MFDs. Verified against an
-**E9**. *Not affiliated with, endorsed by, or connected to Raymarine.* **Not for Axiom**, which uses
-a different protocol entirely.
+**e95** (HybridTouch). *Not affiliated with, endorsed by, or connected to Raymarine.* **Not for
+Axiom**, which uses a different protocol entirely.
 
-> **Status: early.** The protocol layer is complete and tested. The app is not built yet — see
-> [Roadmap](#roadmap). Nothing here is a navigation instrument; see [Safety](#safety).
+> **Status: early.** The protocol layer is complete and tested, and the control-only app works
+> against a simulated display — see [Roadmap](#roadmap). Nothing here is a navigation instrument;
+> see [Safety](#safety).
 
 ## Why
 
@@ -60,7 +61,7 @@ is what makes coarse cursor movement possible. A synthetic release would break i
 | Phase | | Status |
 |---|---|---|
 | 0 | Protocol: framing, keys, zoom, touch, discovery parsing | ✅ done, tested |
-| 1 | Control-only app: discovery, manual address, Compose keypad | next |
+| 1 | Control-only app: discovery, manual address, Compose keypad | ✅ built; verified against the simulator, on-water pending |
 | 2 | Video: RTSP/RTP + `MediaCodec`, side-by-side layout, latency overlay | |
 | 3 | Touch and gestures: tap/drag to the MFD, pinch/pan locally | |
 | 4 | Structured data — the MFD also exposes an AMQP broker (unexplored) | speculative |

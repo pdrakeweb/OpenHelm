@@ -1,6 +1,7 @@
 plugins {
+    // AGP 9 ships built-in Kotlin support; the standalone kotlin("android") plugin must not be
+    // applied alongside it.
     id("com.android.application")
-    kotlin("android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
     id("com.google.dagger.hilt.android")
