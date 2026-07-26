@@ -1,0 +1,13 @@
+OpenHelm
+Copyright 2026 The OpenHelm Authors
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product is not affiliated with, endorsed by, or connected to Raymarine or
+Teledyne FLIR. "Raymarine", "Axiom" and related marks belong to their owners and
+are used here only to describe, factually, which hardware this software
+interoperates with.
+
+OpenHelm is a clean-room implementation built from a description of a network
+protocol observed on hardware the authors own. It contains no third-party code,
+resources or artwork. See CLEAN-ROOM.md.
