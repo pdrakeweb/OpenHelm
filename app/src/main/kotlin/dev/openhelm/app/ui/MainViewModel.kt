@@ -113,10 +113,8 @@ class MainViewModel @Inject constructor(
         private set
 
     /**
-     * The chosen palette, or null to follow the system's light/dark setting.
-     *
-     * Null is the default and is not the same as [HelmPalette.DAY]: a phone already in dark mode
-     * should not be dragged into a white screen just because nobody has touched the control.
+     * The palette the user has chosen, or null if they never have — in which case the UI shows
+     * [DefaultPalette].
      */
     var palette by mutableStateOf<HelmPalette?>(null)
         private set
@@ -125,8 +123,7 @@ class MainViewModel @Inject constructor(
         // Restored on launch. Unlike simulation mode this is deliberately sticky — see
         // EndpointStore.palette for why relaunching bright after dark is not acceptable.
         viewModelScope.launch {
-            val saved = store.palette.first()
-            palette = HelmPalette.entries.firstOrNull { it.name == saved }
+            palette = parsePalette(store.palette.first())
         }
 
         // TCP-interleaved RTP is a simulator-only workaround — the AVD's NAT drops inbound UDP.
@@ -331,6 +328,21 @@ class MainViewModel @Inject constructor(
      */
     fun cyclePalette(from: HelmPalette) {
         selectPalette(HelmPalette.entries[(from.ordinal + 1) % HelmPalette.entries.size])
+    }
+
+    /**
+     * Read a persisted palette name.
+     *
+     * The enum constants were renamed once (`DAY` and `DUSK` became [HelmPalette.HIGH_CONTRAST] and
+     * [HelmPalette.DARK]), and the name is what gets written to disk. Without the legacy mapping
+     * every existing install would silently fall back to the default on upgrade, which for anyone
+     * who had chosen high contrast means the app quietly stops being readable in sun.
+     */
+    private fun parsePalette(saved: String?): HelmPalette? = when (saved) {
+        null -> null
+        "DAY" -> HelmPalette.HIGH_CONTRAST
+        "DUSK" -> HelmPalette.DARK
+        else -> HelmPalette.entries.firstOrNull { it.name == saved }
     }
 
     /** Choose a palette outright — what the named options in Settings do. */

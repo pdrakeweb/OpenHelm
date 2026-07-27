@@ -165,7 +165,7 @@ private fun ScanningIndicator(
             text = when {
                 active -> "Scanning"
                 idle -> "Disconnected"
-                timedOut -> "No display found"
+                timedOut -> "No MFD found"
                 else -> "Ready"
             },
             style = MaterialTheme.typography.titleMedium,

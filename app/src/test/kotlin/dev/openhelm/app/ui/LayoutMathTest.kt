@@ -102,9 +102,20 @@ class LayoutMathTest {
 
     @Test
     fun `icons scale with their key but stay within legible bounds`() {
-        assertEquals(18.dp, iconSizeFor(40.dp))   // clamped up
-        assertEquals(30.dp, iconSizeFor(120.dp))  // clamped down
-        assertTrue(iconSizeFor(88.dp) in 18.dp..30.dp)
+        assertEquals(24.dp, iconSizeFor(40.dp))   // clamped up
+        assertEquals(40.dp, iconSizeFor(120.dp))  // clamped down
+        assertTrue(iconSizeFor(72.dp) in 24.dp..40.dp)
+    }
+
+    @Test
+    fun `the glyph is given more of the key than the label`() {
+        // The shape is what gets recognised at arm's length on a moving boat; the word is read
+        // while learning the panel and rarely after. A key must never be mostly text.
+        val key = 68.dp
+        assertTrue(
+            "glyph ${iconSizeFor(key)} is not clearly larger than the ${LabelTextSize.value}sp label",
+            iconSizeFor(key).value > LabelTextSize.value * 2f,
+        )
     }
 
     // ---- dial direction sectors -----------------------------------------------------------

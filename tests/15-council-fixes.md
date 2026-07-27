@@ -1,6 +1,6 @@
 # 15 — Review-council fixes
 
-Verifies the defects found by the deep code review, plus the day/dusk/night control that came out
+Verifies the defects found by the deep code review, plus the palette control that came out
 of it. Most of this is about things that must **not** happen, so several checks are negative — read
 the EXPECTED carefully before deciding a quiet screen is a pass.
 
@@ -59,12 +59,12 @@ carried a comment saying a pinch must never leak, while doing exactly that.
 
 ---
 
-### 15.4 Day / dusk / night is reachable without leaving the session
+### 15.4 The palette is reachable without leaving the session
 
 - **SETUP:** Connected, or in simulation.
 - **EXPECTED:** A **Screen brightness** button sits in the status bar, at the **left** end of the
   action group — the full width of the group away from Disconnect, so a reach for it in the dark
-  cannot land on the control that ends the session. Each tap advances day → dusk → night → day.
+  cannot land on the control that ends the session. Each tap advances high contrast → dark → night → high contrast.
   The icon shows the palette **currently in effect**, not the one the next tap selects.
 - **VERIFY:**
   ```bash
@@ -117,10 +117,13 @@ The two session flags are deliberately opposite, and it is worth checking they h
   # launch, observe, then:
   "$ADB" shell cmd uimode night yes && "$ADB" shell am force-stop dev.openhelm.app
   ```
-- **EXPECTED:** **Dusk**, both times. The phone's light/dark setting describes a living room rather
-  than a cockpit, and it is wrong in both directions here — a phone in light mode would land in Day,
-  which glares below decks, and Day is the palette least likely to be right at the moment the app is
-  first opened. Dusk is legible in the conditions the other two are for.
+- **EXPECTED:** **Dark**, both times. The phone's light/dark setting describes a living room rather
+  than a cockpit, and it is wrong in both directions here — a phone in light mode would land in high
+  contrast, which glares below decks, and high contrast is the palette least likely to be right at
+  the moment the app is first opened. Dark is legible in the conditions the other two are for.
+- **ALSO:** An install upgraded from a build that stored `DAY` or `DUSK` must come back up in high
+  contrast and dark respectively, not fall back to the default — the enum constants were renamed and
+  the name is what is persisted.
 - **PASS/FAIL:** PASS if a fresh install is in dusk regardless of the system setting.
 
 ---
@@ -263,7 +266,7 @@ remove.
 
 ### 15.16 Settings names the palettes; the status bar cycles them
 
-- **EXPECTED:** Settings shows **Day / Dusk / Night** as three labelled options with a line saying
+- **EXPECTED:** Settings shows **High contrast / Dark / Night** as three labelled options with a line saying
   what each is for, the current one marked by a **border** rather than a bright fill — a filled
   selection made the chosen chip the brightest thing on a night screen, which defeats the point of
   the control. Both surfaces write the same persisted value.
@@ -296,3 +299,46 @@ feature being switched off.
 - **ALSO:** Back from Remote returns to Mirror before it offers to disconnect, as it always did.
 - **PASS/FAIL:** PASS if both modes are visible and named at once. FAIL if the control still
   requires inferring the current state from a verb.
+
+---
+
+### 15.18 High contrast is measurably high contrast
+
+- **SETUP:** Any screen, palette set to **High contrast**.
+- **EXPECTED:** Every control is a near-black slab on a white page. Body text clears **7:1** and
+  large text, icons and component outlines clear **4.5:1** — WCAG AAA. Nothing anywhere relies on
+  one mid-tone separating from another, because that separation is the first thing glare removes.
+- **VERIFY:** `./gradlew :app:testDebugUnitTest --tests '*PaletteContrastTest*'` computes the ratio
+  for every pairing the app draws, in all three palettes. On device, confirm the keypad keys, the
+  dial body, the tonal buttons and the selected mode segment are all dark slabs rather than tints.
+- **NOTE:** The other two palettes are held to lower floors on purpose — dark to AA, night below it.
+  Night cannot meet WCAG without emitting light it exists to avoid; that trade is deliberate and
+  documented where the palette is defined.
+- **PASS/FAIL:** PASS if the suite is green and the on-device look matches. A failure here names the
+  exact pairing and its measured ratio.
+
+---
+
+### 15.19 The dial is visible in every palette
+
+The original defect: the dial's body was never filled — only its ring was stroked — so the four
+direction arrows were drawn onto whatever was behind the panel. That survived two dark palettes by
+luck, light arrows on a dark page, and vanished completely in high contrast, where the page is white
+and so were the arrows.
+
+- **SETUP:** Connected or simulating; step through all three palettes.
+- **EXPECTED:** In each, the dial is a filled disc with four visible arrows, an outlined OK hub, a
+  ringed outer band with tick marks, and the **+** and **−** rotation marks.
+- **PASS/FAIL:** PASS if all of it is visible in all three. FAIL on any palette where part of the
+  dial disappears into the page.
+
+---
+
+### 15.20 Glyphs are large and labels are small
+
+- **SETUP:** Connected or simulating, in any palette.
+- **EXPECTED:** On every key of the panel and the keypad, the icon dominates and the word sits under
+  it as a small caption. The shape is what gets recognised at arm's length on a moving boat; the
+  label is read while learning the panel and rarely after.
+- **VERIFY:** Covered numerically by `LayoutMathTest`; on device it should be obvious at a glance.
+- **PASS/FAIL:** PASS if no key reads as mostly text.

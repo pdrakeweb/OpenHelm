@@ -71,14 +71,16 @@ fun Dial(
     val view = LocalView.current
     val textMeasurer = rememberTextMeasurer()
 
-    val okColor = MaterialTheme.colorScheme.surfaceVariant
-    val okPressedColor = MaterialTheme.colorScheme.primary
-    val ringColor = MaterialTheme.colorScheme.surfaceVariant
-    val arrowColor = MaterialTheme.colorScheme.onSurface
-    val arrowPressedColor = MaterialTheme.colorScheme.onPrimary
-    val sectorPressedColor = MaterialTheme.colorScheme.primary
+    // Same source as the keypad keys, so the dial and the keys press the same colour.
+    val controls = LocalHelmControls.current
+    val okColor = controls.keyFill
+    val okPressedColor = controls.keyPressedFill
+    val ringColor = controls.keyFill
+    val arrowColor = controls.keyContent
+    val arrowPressedColor = controls.keyPressedContent
+    val sectorPressedColor = controls.keyPressedFill
     val okTextStyle = TextStyle(
-        color = MaterialTheme.colorScheme.onSurface,
+        color = controls.keyContent,
         fontSize = 16.sp,
         fontWeight = FontWeight.SemiBold,
     )
@@ -181,6 +183,15 @@ fun Dial(
             val r = min(this.size.width, this.size.height) / 2f
             val c = Offset(this.size.width / 2f, this.size.height / 2f)
 
+            // The dial's body, filled.
+            //
+            // This used to be transparent: only the ring was stroked, so the direction arrows were
+            // drawn straight onto whatever was behind the panel. That survived two dark palettes by
+            // luck — light arrows on a dark page — and vanished completely in high contrast, where
+            // the page is white and so are the arrows. A filled body also makes the sectors look
+            // like the targets they are, instead of empty space around a ring.
+            drawCircle(color = okColor, radius = r * SECTOR_RADIUS, center = c)
+
             // Outer ring, with tick marks so rotation reads as rotation.
             drawCircle(
                 color = if (pressed == DialRegion.RING) sectorPressedColor else ringColor,
@@ -264,11 +275,18 @@ fun Dial(
             arrow(180f, DialRegion.DOWN)
             arrow(270f, DialRegion.LEFT)
 
-            // OK hub.
+            // OK hub. Same fill as the body it sits in, so it needs an outline to read as a
+            // separate target rather than as the middle of one large button.
             drawCircle(
                 color = if (pressed == DialRegion.OK) okPressedColor else okColor,
                 radius = r * OK_RADIUS,
                 center = c,
+            )
+            drawCircle(
+                color = arrowColor,
+                radius = r * OK_RADIUS,
+                center = c,
+                style = Stroke(width = 2.dp.toPx()),
             )
             val label = textMeasurer.measure("OK", okTextStyle)
             drawText(

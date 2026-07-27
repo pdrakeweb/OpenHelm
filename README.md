@@ -32,9 +32,15 @@ and two-finger drag zoom and pan your own view of the picture and stay local to 
 
 ## Light conditions
 
-Day, dusk and night palettes, one tap apart on the remote screen and listed by name in Settings. The
-choice is remembered across launches. Night is red-dominant and dims the video along with the rest
-of the interface, since the chart is the largest bright object on screen.
+High contrast, dark and night palettes, one tap apart on the remote screen and listed by name in
+Settings. The choice is remembered across launches, and a fresh install starts in dark.
+
+High contrast is built to WCAG's AAA thresholds — 7:1 for body text, 4.5:1 for large text and icons
+— and puts every control on the screen as a near-black slab on a white page, because sunlight
+compresses contrast from the top down and a light tint of the page has no edge left once the
+highlights are gone. Night is red-dominant and dims the video along with the interface, since the
+chart is the largest bright object on screen. The ratios are computed and asserted in
+`PaletteContrastTest`, so a change that looks better but reads worse fails the build.
 
 ## Connecting
 
@@ -85,8 +91,8 @@ as the primary target.
 ```
 
 covers the wire format, RTP depacketisation, SDP parsing, the adaptive layout arithmetic, the
-failure-text sanitiser and the remembered-display codec. Device procedures are in
-[`tests/`](tests/README.md).
+palette contrast ratios, the failure-text sanitiser and the remembered-display codec. Device
+procedures are in [`tests/`](tests/README.md).
 
 Latency is measured on ARM hardware. `MediaCodec` on an x86_64 emulator resolves to a software
 decoder, and low-latency decode, codec priority, output-buffer timing and colour-format handling all

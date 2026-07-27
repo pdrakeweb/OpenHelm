@@ -3,6 +3,7 @@ package dev.openhelm.app.ui
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -79,9 +80,8 @@ fun MfdKeyButton(
 ) {
     var pressed by remember { mutableStateOf(false) }
     val view = LocalView.current
-    val background =
-        if (pressed) MaterialTheme.colorScheme.primary
-        else MaterialTheme.colorScheme.surfaceVariant
+    val controls = LocalHelmControls.current
+    val background = if (pressed) controls.keyPressedFill else controls.keyFill
 
     Box(
         modifier = modifier
@@ -91,6 +91,15 @@ fun MfdKeyButton(
             .height(size)
             .clip(MaterialTheme.shapes.medium)
             .background(background)
+            .then(
+                // Only the high-contrast palette asks for one; elsewhere the fill already separates
+                // the key from the panel and a border would be noise.
+                if (controls.keyBorderWidth > 0.dp) {
+                    Modifier.border(controls.keyBorderWidth, controls.keyBorder, MaterialTheme.shapes.medium)
+                } else {
+                    Modifier
+                },
+            )
             // Accessibility has to be declared explicitly: this is a raw pointerInput on a Box, so
             // nothing about it is a button as far as the framework is concerned, and without a
             // role and an action TalkBack announced it as unlabelled static content and offered no
@@ -152,8 +161,8 @@ fun ControlKey(
         width = width,
         contentDescription = control.description,
     ) { pressed ->
-        val tint =
-            if (pressed) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+        val controls = LocalHelmControls.current
+        val tint = if (pressed) controls.keyPressedContent else controls.keyContent
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
@@ -169,7 +178,8 @@ fun ControlKey(
                 Text(
                     text = control.label,
                     color = tint,
-                    fontSize = 11.sp,
+                    fontSize = LabelTextSize,
+                    lineHeight = LabelTextSize,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     textAlign = TextAlign.Center,
@@ -197,9 +207,10 @@ fun LabelKey(
         width = width,
         contentDescription = label,
     ) { pressed ->
+        val controls = LocalHelmControls.current
         Text(
             text = label,
-            color = if (pressed) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+            color = if (pressed) controls.keyPressedContent else controls.keyContent,
             fontSize = if (label.length > 2) 14.sp else 20.sp,
             fontWeight = FontWeight.SemiBold,
             textAlign = TextAlign.Center,
@@ -229,8 +240,8 @@ fun ArrowKey(
         size = size,
         contentDescription = label,
     ) { pressed ->
-        val color =
-            if (pressed) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+        val controls = LocalHelmControls.current
+        val color = if (pressed) controls.keyPressedContent else controls.keyContent
         Canvas(modifier = Modifier.size(iconSizeFor(size))) {
             val w = this.size.width
             val h = this.size.height
@@ -256,8 +267,18 @@ fun ArrowKey(
     }
 }
 
-/** Icon glyphs scale with their key, within sane bounds, so every mode looks like one family. */
-internal fun iconSizeFor(keySize: Dp): Dp = (keySize * 0.34f).coerceIn(18.dp, 30.dp)
+/**
+ * Icon glyphs scale with their key, within bounds, so every mode looks like one family.
+ *
+ * Weighted towards the glyph rather than the word. At arm's length on a moving boat the shape is
+ * what gets recognised; the label is a confirmation you read once while learning the panel and
+ * rarely again. The earlier split gave the two roughly equal presence, which meant the icon was
+ * smaller than it needed to be at every key size.
+ */
+internal fun iconSizeFor(keySize: Dp): Dp = (keySize * 0.46f).coerceIn(24.dp, 40.dp)
+
+/** Key labels sit under their glyph and stay out of its way. */
+internal val LabelTextSize = 9.sp
 
 /**
  * The full-screen keypad, for the control-only remote mode: a directional cluster with OK in the

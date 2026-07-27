@@ -153,8 +153,8 @@ private fun PaletteSection(palette: HelmPalette, onSelect: (HelmPalette) -> Unit
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PaletteChoice(HelmPalette.DAY, "Day", "Direct sun", palette, onSelect, Modifier.weight(1f))
-                PaletteChoice(HelmPalette.DUSK, "Dusk", "Overcast, below decks", palette, onSelect, Modifier.weight(1f))
+                PaletteChoice(HelmPalette.HIGH_CONTRAST, "High contrast", "Direct sun", palette, onSelect, Modifier.weight(1f))
+                PaletteChoice(HelmPalette.DARK, "Dark", "Overcast, below decks", palette, onSelect, Modifier.weight(1f))
                 PaletteChoice(HelmPalette.NIGHT, "Night", "Red, keeps night vision", palette, onSelect, Modifier.weight(1f))
             }
         }
@@ -182,8 +182,8 @@ private fun PaletteChoice(
 ) {
     val selected = value == current
     val icon = when (value) {
-        HelmPalette.DAY -> MfdIcons.PaletteDay
-        HelmPalette.DUSK -> MfdIcons.PaletteDusk
+        HelmPalette.HIGH_CONTRAST -> MfdIcons.PaletteDay
+        HelmPalette.DARK -> MfdIcons.PaletteDusk
         HelmPalette.NIGHT -> MfdIcons.PaletteNight
     }
 
