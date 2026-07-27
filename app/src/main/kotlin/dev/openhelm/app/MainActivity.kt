@@ -3,7 +3,6 @@ package dev.openhelm.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.MaterialTheme
@@ -17,7 +16,7 @@ import dev.openhelm.app.rrc.ConnectionState
 import dev.openhelm.app.ui.ConnectScreen
 import dev.openhelm.app.ui.HelmPalette
 import dev.openhelm.app.ui.MainViewModel
-import dev.openhelm.app.ui.defaultPaletteFor
+import dev.openhelm.app.ui.DefaultPalette
 import dev.openhelm.app.ui.ManualConnectScreen
 import dev.openhelm.app.ui.OpenHelmTheme
 import dev.openhelm.app.ui.RemoteScreen
@@ -34,7 +33,7 @@ class MainActivity : ComponentActivity() {
             // The view model is resolved above the theme, not inside AppRoot, because the palette
             // it holds decides the theme for every screen below.
             val viewModel: MainViewModel = viewModel()
-            val palette = viewModel.palette ?: defaultPaletteFor(isSystemInDarkTheme())
+            val palette = viewModel.palette ?: DefaultPalette
 
             OpenHelmTheme(palette = palette) {
                 Surface(

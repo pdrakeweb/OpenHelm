@@ -108,19 +108,20 @@ The two session flags are deliberately opposite, and it is worth checking they h
 
 ---
 
-### 15.7 Before any palette has been chosen, the system setting is followed
+### 15.7 A fresh install comes up in dusk
 
-- **SETUP:** A fresh install (`adb uninstall` first, or clear app data).
-- **STEPS:**
+- **SETUP:** A fresh install (`adb uninstall` first, or `adb shell pm clear dev.openhelm.app`).
+- **STEPS:** Launch with the phone's own theme set each way in turn:
   ```bash
-  "$ADB" shell cmd uimode night no   && "$ADB" shell am force-stop dev.openhelm.app
+  "$ADB" shell cmd uimode night no  && "$ADB" shell am force-stop dev.openhelm.app
   # launch, observe, then:
-  "$ADB" shell cmd uimode night yes  && "$ADB" shell am force-stop dev.openhelm.app
+  "$ADB" shell cmd uimode night yes && "$ADB" shell am force-stop dev.openhelm.app
   ```
-- **EXPECTED:** Light system setting → **day**. Dark system setting → **dusk**, *not* night. Dark
-  mode means "it is dark here"; night is the much stronger claim that red-shifted, heavily dimmed
-  output is wanted, and it costs real legibility — it is only ever entered deliberately.
-- **PASS/FAIL:** PASS if an untouched install follows the system and never lands in night.
+- **EXPECTED:** **Dusk**, both times. The phone's light/dark setting describes a living room rather
+  than a cockpit, and it is wrong in both directions here — a phone in light mode would land in Day,
+  which glares below decks, and Day is the palette least likely to be right at the moment the app is
+  first opened. Dusk is legible in the conditions the other two are for.
+- **PASS/FAIL:** PASS if a fresh install is in dusk regardless of the system setting.
 
 ---
 

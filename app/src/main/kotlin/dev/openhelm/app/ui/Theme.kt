@@ -21,14 +21,15 @@ import androidx.compose.ui.graphics.Color
 enum class HelmPalette { DAY, DUSK, NIGHT }
 
 /**
- * What to show before the user has ever chosen: the system's own light/dark setting.
+ * What a fresh install shows until the user chooses otherwise.
  *
- * Dark maps to [DUSK] rather than [NIGHT]. Android's dark mode means "it is dark here"; [NIGHT] is
- * the far stronger claim that red-shifted, heavily dimmed output is wanted, which costs real
- * legibility and should only ever be entered deliberately.
+ * [DUSK] regardless of the phone's own light/dark setting. The system setting describes a living
+ * room, not a cockpit, and it is wrong in both directions here: a phone in light mode dragged into
+ * [DAY] is glaring below decks, and [DAY] is the palette most likely to be wrong at the moment the
+ * app is first opened, which is rarely in direct sun. Dusk is legible in every condition the other
+ * two are designed for, which makes it the right thing to be wrong with.
  */
-fun defaultPaletteFor(systemInDarkTheme: Boolean): HelmPalette =
-    if (systemInDarkTheme) HelmPalette.DUSK else HelmPalette.DAY
+val DefaultPalette: HelmPalette = HelmPalette.DUSK
 
 /**
  * Shared container tones.
@@ -49,14 +50,13 @@ private object Navy {
 /**
  * Overcast, twilight, below decks — the conventional dark theme.
  *
- * Note how many `*Container` roles are set. Material's tonal buttons and segmented buttons —
- * every *Done*, *Back*, *Exit simulation* and the Mirror/Remote switch — take their colour from
- * `secondaryContainer`, and
- * the destructive variant from `errorContainer`. Leaving those unset does **not** derive them from
- * the palette: `darkColorScheme()` fills them from Material's baseline, which is purple. Every
- * screen therefore carried a row of lavender buttons that ignored the palette entirely, and in
- * night mode that is not a cosmetic problem — a bright non-red button is exactly the thing night
- * mode exists to remove. If a role is used anywhere, it is named here.
+ * Note how many roles are named. Material's tonal and segmented buttons — every *Done*, *Back*,
+ * *Exit simulation* and the Mirror/Remote switch — draw from `secondaryContainer`, the destructive
+ * variant from `errorContainer`, and switch tracks from `surfaceContainerHighest`. Leaving one
+ * unset does not derive it from the palette: the scheme builder fills it from Material's baseline,
+ * which is purple in the dark schemes and near-white in the light one. That produced a row of
+ * lavender buttons on every screen, and in night mode a bright non-red control is exactly what the
+ * palette exists to remove. If a role is used anywhere, it is named in all three schemes.
  */
 private val DuskColors = darkColorScheme(
     primary = Color(0xFF64B5F6),
@@ -75,8 +75,11 @@ private val DuskColors = darkColorScheme(
     onBackground = Navy.OnSurface,
     surface = Navy.Surface,
     onSurface = Navy.OnSurface,
+    surfaceContainerLowest = Color(0xFF060E16),
+    surfaceContainerLow = Color(0xFF0E1C28),
     surfaceContainer = Navy.SurfaceContainer,
     surfaceContainerHigh = Navy.SurfaceVariant,
+    surfaceContainerHighest = Color(0xFF203A52),
     surfaceVariant = Navy.SurfaceVariant,
     onSurfaceVariant = Navy.OnSurfaceVariant,
     error = Color(0xFFEF9A9A),
@@ -86,33 +89,51 @@ private val DuskColors = darkColorScheme(
     outline = Color(0xFF4B6076),
 )
 
-/** Direct sun. Legibility beats elegance: near-white surfaces, dark text, maximum contrast. */
+/**
+ * Direct sun. Legibility beats elegance.
+ *
+ * The containers are deliberately several shades darker than a conventional light theme's, and the
+ * text and outlines on them darker again. Material's light palette is tuned for a screen indoors,
+ * where a near-white button on a white page still reads. Outdoors it does not: sunlight washes the
+ * top of the range flat, so the pale end of a light scheme collapses towards the page and the
+ * buttons stop having edges. Pulling the containers down into the mid-tones keeps that separation
+ * once the highlights are gone, and near-black content on them holds up when a polarised lens or a
+ * low sun takes another slice of the contrast.
+ */
 private val DayColors = lightColorScheme(
-    primary = Color(0xFF0B4F86),
+    primary = Color(0xFF073A63),
     onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFCFE3F5),
-    onPrimaryContainer = Color(0xFF06263F),
-    secondary = Color(0xFF1D6F66),
+    primaryContainer = Color(0xFF9BBFE0),
+    onPrimaryContainer = Color(0xFF04203A),
+    secondary = Color(0xFF12564E),
     onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFD6E4F0),
-    onSecondaryContainer = Color(0xFF0B3350),
-    tertiary = Color(0xFF7A5A12),
+    // The tonal-button container: Mirror/Remote, Done, Back, Exit simulation. Mid-tone, so the
+    // button still has an edge when the page is blown out.
+    secondaryContainer = Color(0xFFA5BCD1),
+    onSecondaryContainer = Color(0xFF05223A),
+    tertiary = Color(0xFF6A4C0C),
     onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0xFFF6E7BE),
-    onTertiaryContainer = Color(0xFF3A2900),
-    background = Color(0xFFF3F6F9),
-    onBackground = Color(0xFF0B1620),
-    surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF0B1620),
-    surfaceContainer = Color(0xFFE7EDF3),
-    surfaceContainerHigh = Color(0xFFDDE5EC),
-    surfaceVariant = Color(0xFFDDE5EC),
-    onSurfaceVariant = Color(0xFF33475A),
-    error = Color(0xFFB3261E),
+    tertiaryContainer = Color(0xFFDFC98C),
+    onTertiaryContainer = Color(0xFF2B1E00),
+    background = Color(0xFFEBEFF4),
+    onBackground = Color(0xFF07121C),
+    surface = Color(0xFFFAFCFE),
+    onSurface = Color(0xFF07121C),
+    surfaceContainerLowest = Color(0xFFFFFFFF),
+    surfaceContainerLow = Color(0xFFE2E9F0),
+    surfaceContainer = Color(0xFFD2DCE6),
+    surfaceContainerHigh = Color(0xFFC2D0DE),
+    // Switch tracks and other "highest" surfaces. Left unset, Material fills this from its light
+    // baseline, which is near-white — the simulation switch vanished into the card behind it.
+    surfaceContainerHighest = Color(0xFFAEC0D1),
+    // Keypad keys, the dial's hub and ring, and the settings cards all draw from this.
+    surfaceVariant = Color(0xFFB6C7D7),
+    onSurfaceVariant = Color(0xFF1E3145),
+    error = Color(0xFF8F1710),
     onError = Color(0xFFFFFFFF),
-    errorContainer = Color(0xFFF9DEDC),
-    onErrorContainer = Color(0xFF410E0B),
-    outline = Color(0xFF6B7C8C),
+    errorContainer = Color(0xFFE3B3AD),
+    onErrorContainer = Color(0xFF360705),
+    outline = Color(0xFF3F5266),
 )
 
 /**
@@ -139,8 +160,11 @@ private val NightColors = darkColorScheme(
     onBackground = Color(0xFFA85A46),
     surface = Color(0xFF120705),
     onSurface = Color(0xFFA85A46),
+    surfaceContainerLowest = Color(0xFF040201),
+    surfaceContainerLow = Color(0xFF0D0503),
     surfaceContainer = Color(0xFF170907),
     surfaceContainerHigh = Color(0xFF1F0C08),
+    surfaceContainerHighest = Color(0xFF2A120C),
     surfaceVariant = Color(0xFF1F0C08),
     onSurfaceVariant = Color(0xFF8E4B3C),
     error = Color(0xFFCF6151),
