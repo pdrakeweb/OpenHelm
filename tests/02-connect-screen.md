@@ -150,17 +150,24 @@ A judgement call, but a specified one: the scanning state must be what the eye l
 
 ### 02.7 Layout survives rotation
 
-- **SETUP:** Connect screen showing.
+- **SETUP:** Connect screen showing. Not landscape-locked ([10.1b](10-app-lifecycle-and-network.md)
+  covers that this screen specifically is free to rotate, unlike the remote screen).
 - **STEPS:**
   ```bash
   "$ADB" shell settings put system accelerometer_rotation 0
-  "$ADB" shell settings put system user_rotation 0     # portrait
-  sleep 2; "$ADB" exec-out screencap -p > 02_7_portrait.png
-  "$ADB" shell settings put system user_rotation 1     # landscape
-  sleep 2; "$ADB" exec-out screencap -p > 02_7_landscape.png
+  "$ADB" shell settings put system user_rotation 0
+  sleep 2; "$ADB" exec-out screencap -p > 02_7_a.png
+  "$ADB" shell settings put system user_rotation 1
+  sleep 2; "$ADB" exec-out screencap -p > 02_7_b.png
+  "$ADB" shell settings put system accelerometer_rotation 1   # restore auto-rotate
   ```
+  (Which of `0`/`1` is portrait vs. landscape depends on the device's natural orientation — on
+  `SeaWhisperTab`, a landscape-native tablet image, `0` is landscape and `1` is portrait, the
+  opposite of a typical phone. Compare the two screenshots to each other rather than assuming
+  either value means a specific orientation.)
 - **EXPECTED:** Both orientations render the same elements, nothing clipped or overlapping, and the
   app does not restart its scan from scratch or crash.
-- **VERIFY:** Both screenshots are intact layouts; no crash in logcat.
+- **VERIFY:** Both screenshots are intact layouts, visibly different aspect ratios; no crash in
+  logcat.
 - **PASS/FAIL:** PASS if both orientations are usable. FAIL on clipped/overlapping controls or a
   crash. (Landscape is the primary orientation; portrait must merely not break.)
