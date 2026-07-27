@@ -1,5 +1,7 @@
 package dev.openhelm.app.ui
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -7,7 +9,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -33,7 +37,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.view.HapticFeedbackConstants
 import dev.openhelm.protocol.MfdKey
 import kotlin.math.atan2
 import kotlin.math.hypot
@@ -68,6 +71,21 @@ fun Dial(
     // content into a scroll rather than into an unhittable control.
     val dialSize = size.coerceAtLeast(MinDialSize)
     var pressed by remember { mutableStateOf(DialRegion.NONE) }
+
+    // Rotation readout. The ring is turned with a thumb that covers the arc it is on, so none of
+    // this is drawn where the finger is: the count goes in the hub and the lit detent travels the
+    // whole ring, both of which stay visible around the hand.
+    var ringSteps by remember { mutableIntStateOf(0) }
+    var lastDirection by remember { mutableIntStateOf(0) }
+    // Increments on every detent, including repeats in the same direction, so the flash retriggers.
+    var detents by remember { mutableIntStateOf(0) }
+    val detentFlash = remember { Animatable(0f) }
+
+    LaunchedEffect(detents) {
+        if (detents == 0) return@LaunchedEffect
+        detentFlash.snapTo(1f)
+        detentFlash.animateTo(0f, tween(durationMillis = 260))
+    }
     val view = LocalView.current
     val textMeasurer = rememberTextMeasurer()
 
@@ -143,6 +161,8 @@ fun Dial(
                         else -> {
                             // The ring: turn angle travel into discrete steps.
                             pressed = DialRegion.RING
+                            ringSteps = 0
+                            lastDirection = 0
                             var lastAngle = Math.toDegrees(atan2(rel.y, rel.x).toDouble())
                             var travel = 0.0
                             var accumulated = 0
@@ -161,18 +181,25 @@ fun Dial(
                                 while (travel >= STEP_DEGREES) {
                                     travel -= STEP_DEGREES
                                     accumulated++
-                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                    ringSteps = accumulated
+                                    lastDirection = 1
+                                    detents++
+                                    HelmHaptics.detent(view)
                                     onRotate(1, accumulated)
                                 }
                                 while (travel <= -STEP_DEGREES) {
                                     travel += STEP_DEGREES
                                     accumulated--
-                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                    ringSteps = accumulated
+                                    lastDirection = -1
+                                    detents++
+                                    HelmHaptics.detent(view)
                                     onRotate(-1, accumulated)
                                 }
                                 change.consume()
                             }
                             pressed = DialRegion.NONE
+                            lastDirection = 0
                         }
                     }
                 }
@@ -199,13 +226,55 @@ fun Dial(
                 center = c,
                 style = Stroke(width = r * 0.14f),
             )
-            repeat(12) { i ->
-                rotate(degrees = i * 30f, pivot = c) {
+            // A pulse across the whole ring on each click, so a detent registers even in peripheral
+            // vision and even where the hand is in the way.
+            if (detentFlash.value > 0f) {
+                drawCircle(
+                    color = arrowPressedColor.copy(alpha = 0.45f * detentFlash.value),
+                    radius = r * 0.92f,
+                    center = c,
+                    style = Stroke(width = r * 0.14f),
+                )
+            }
+            // One tick per detent, not a decorative twelve. The ring turns [STEP_DEGREES] to a
+            // click, so marking it at exactly that interval means the lit tick advances by one mark
+            // per click and the marks themselves become the count.
+            val tickCount = (360 / STEP_DEGREES).toInt()
+            val activeTick = ((ringSteps % tickCount) + tickCount) % tickCount
+            val rotating = pressed == DialRegion.RING
+
+            repeat(tickCount) { i ->
+                // How far behind the live tick this one is, counting against the direction of
+                // travel — so the lit trail trails, and which way it is moving is legible from a
+                // still frame as well as from the movement.
+                val behind = if (lastDirection >= 0) {
+                    ((activeTick - i) + tickCount) % tickCount
+                } else {
+                    ((i - activeTick) + tickCount) % tickCount
+                }
+                val lit = rotating && lastDirection != 0 && behind <= TRAIL_LENGTH
+
+                // Ticks are drawn against the ring, and the ring changes colour when it is being
+                // turned — so they take the ring's own content colour rather than a fixed one. The
+                // first attempt drew the live tick in the pressed colour, which is exactly what the
+                // ring underneath had just become, so it was visible only where it overhung the
+                // body.
+                val onRing = if (rotating) arrowPressedColor else arrowColor
+                val alpha = when {
+                    lit && behind == 0 -> 1f
+                    lit -> 0.7f - behind * 0.18f
+                    rotating -> 0.3f
+                    else -> 0.5f
+                }
+                // Kept inside the ring band: a tick that reached over the body would cross from one
+                // background to the other and lose its contrast halfway along.
+                val inner = if (lit && behind == 0) 0.855f else 0.88f
+                rotate(degrees = i * STEP_DEGREES.toFloat(), pivot = c) {
                     drawLine(
-                        color = arrowColor.copy(alpha = 0.5f),
-                        start = Offset(c.x, c.y - r * 0.98f),
-                        end = Offset(c.x, c.y - r * 0.86f),
-                        strokeWidth = 2.dp.toPx(),
+                        color = onRing.copy(alpha = alpha.coerceIn(0f, 1f)),
+                        start = Offset(c.x, c.y - r * 0.985f),
+                        end = Offset(c.x, c.y - r * inner),
+                        strokeWidth = (if (lit && behind == 0) 4.dp else 2.dp).toPx(),
                     )
                 }
             }
@@ -288,7 +357,15 @@ fun Dial(
                 center = c,
                 style = Stroke(width = 2.dp.toPx()),
             )
-            val label = textMeasurer.measure("OK", okTextStyle)
+            // The hub carries the count while the ring is turning. It is the one part of the dial a
+            // thumb on the ring cannot cover, which is the whole reason the readout lives here
+            // rather than next to the finger.
+            val hubText = if (pressed == DialRegion.RING && ringSteps != 0) {
+                if (ringSteps > 0) "+$ringSteps" else "−${-ringSteps}"
+            } else {
+                "OK"
+            }
+            val label = textMeasurer.measure(hubText, okTextStyle)
             drawText(
                 label,
                 topLeft = Offset(c.x - label.size.width / 2f, c.y - label.size.height / 2f),
@@ -318,7 +395,7 @@ private suspend inline fun androidx.compose.ui.input.pointer.AwaitPointerEventSc
     setPressed: (DialRegion) -> Unit,
 ) {
     setPressed(region)
-    view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+    HelmHaptics.keyDown(view)
     onKeyDown(key)
     try {
         waitAllUp()
@@ -376,3 +453,11 @@ val MinDialSize: Dp = 156.dp
 private const val OK_RADIUS = 0.36f
 private const val SECTOR_RADIUS = 0.78f
 private const val STEP_DEGREES = 20.0
+
+/**
+ * How many detents behind the live one stay lit.
+ *
+ * Three: enough for the direction to read as movement rather than as a single mark jumping about,
+ * short enough that the trail does not wrap round and meet its own head on a fast sweep.
+ */
+private const val TRAIL_LENGTH = 3

@@ -341,3 +341,45 @@ and so were the arrows.
   label is read while learning the panel and rarely after.
 - **VERIFY:** Covered numerically by `LayoutMathTest`; on device it should be obvious at a glance.
 - **PASS/FAIL:** PASS if no key reads as mostly text.
+
+---
+
+### 15.21 The rotary ring shows what it is doing
+
+Rotation was silent apart from a very light tick. The finger turning the ring covers the arc it is
+on, so any feedback drawn under the thumb is feedback nobody sees.
+
+- **SETUP:** Connected or simulating, in any palette.
+- **STEPS:** Rest a thumb on the outer ring and sweep it round, slowly, in both directions.
+- **EXPECTED, while turning:**
+  - The **hub** shows a running signed count — `+3`, `−2` — in place of `OK`, and returns to `OK` on
+    release. The hub is the one part of the dial a thumb on the ring cannot cover, which is why the
+    readout is there.
+  - One **tick per detent** is marked around the ring, and the lit tick advances by exactly one mark
+    per click, with two or three dimmer marks trailing it. Direction is readable from a still frame,
+    not only from the movement.
+  - The whole ring **pulses** on each click.
+  - Ticks contrast with the ring in both states: light marks on the resting ring, dark marks on the
+    lit one. A tick drawn in the ring's own pressed colour is invisible, which is what the first
+    attempt did.
+- **EXPECTED, on release:** The hub returns to `OK`, the trail clears, the ring returns to rest.
+- **VERIFY:** A screenshot taken mid-sweep is the practical check — `adb shell input swipe` along
+  the ring with a long duration, screenshot while it runs.
+- **PASS/FAIL:** PASS if direction and count are legible without moving the hand. FAIL if the only
+  indication is under the finger.
+
+---
+
+### 15.22 Presses can be felt through a glove
+
+- **SETUP:** Any palette, system haptics on.
+- **EXPECTED:** A key, dial sector or hub going down produces a distinctly heavier effect than a
+  keyboard tap — `CONFIRM` where the platform has it, `LONG_PRESS` below API 30. Ring detents stay
+  lighter than a press, because they fire repeatedly through a sweep and a full press-weight thump
+  on each one blurs into a buzz; they are still heavier than the `CLOCK_TICK` they used to be.
+- **ALSO:** With system haptics **off**, nothing vibrates. Feedback goes through
+  `performHapticFeedback`, so the user's own setting still governs; the app holds no `VIBRATE`
+  permission.
+- **PASS/FAIL:** PASS if a press is clearly felt and the setting is still respected. If it is still
+  too light on real hardware, the next step is an explicit `VibrationEffect` amplitude, which does
+  need the permission.

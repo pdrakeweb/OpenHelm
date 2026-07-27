@@ -1,6 +1,5 @@
 package dev.openhelm.app.ui
 
-import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -118,7 +117,7 @@ fun MfdKeyButton(
                     pressed = true
                     // Haptic on contact: underway, eyes are on the water, and a felt press is
                     // the only confirmation the finger landed.
-                    view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    HelmHaptics.keyDown(view)
                     onDown()
                     try {
                         waitForUpOrCancellation()
