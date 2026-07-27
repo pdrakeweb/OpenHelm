@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
@@ -26,16 +27,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.sp
 import dev.openhelm.app.ui.icons.MfdIcons
-import kotlin.math.abs
-import kotlin.math.sin
 
 /**
  * Simulation mode: the same remote UI as a real session, but with a video feed generated on the
@@ -61,25 +59,42 @@ fun SimulatedRemoteScreen(viewModel: MainViewModel, palette: HelmPalette) {
         if (!viewModel.mirroring) viewModel.selectMirroring(true) else viewModel.exitSimulation()
     }
 
-    Column(Modifier.fillMaxSize()) {
-        SimulationStatusBar(viewModel, palette)
-        if (viewModel.mirroring) {
-            Row(Modifier.weight(1f).fillMaxWidth()) {
-                SimulatedVideoPane(palette, Modifier.weight(1f).fillMaxHeight())
-                SidePanel(viewModel)
-            }
-        } else {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Keypad(onKeyDown = viewModel::keyDown, onKeyUp = viewModel::keyUp)
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // The panel's band comes from the height left under the status bar, and the bar's trailing
+        // button is sized from that band, so the bar's height has to be known first rather than
+        // measured. See StatusBarHeight.
+        val metrics = panelMetricsFor(maxHeight - StatusBarHeight)
+
+        Column(Modifier.fillMaxSize()) {
+            SimulationStatusBar(viewModel, palette, metrics)
+            if (viewModel.mirroring) {
+                Row(Modifier.weight(1f).fillMaxWidth()) {
+                    SimulatedVideoPane(palette, Modifier.weight(1f).fillMaxHeight())
+                    SidePanel(viewModel)
+                }
+            } else {
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Keypad(onKeyDown = viewModel::keyDown, onKeyUp = viewModel::keyUp)
+                }
             }
         }
     }
 }
 
 @Composable
-private fun SimulationStatusBar(viewModel: MainViewModel, palette: HelmPalette) {
+private fun SimulationStatusBar(
+    viewModel: MainViewModel,
+    palette: HelmPalette,
+    metrics: PanelMetrics,
+) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(StatusBarHeight)
+            // No end inset: the trailing action sits in a slot the width of the panel and is
+            // centred in it exactly as the panel centres its own keys, so the two line up in every
+            // size band rather than only in the ones where the key happens to fill its column.
+            .padding(start = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
@@ -98,23 +113,28 @@ private fun SimulationStatusBar(viewModel: MainViewModel, palette: HelmPalette) 
             onSelect = viewModel::selectMirroring,
         )
         Spacer(Modifier.width(8.dp))
-        NavActionButton(
-            icon = MfdIcons.Disconnect,
-            label = "Exit simulation",
-            onClick = viewModel::exitSimulation,
-        )
+        Box(Modifier.width(metrics.panelWidth), contentAlignment = Alignment.Center) {
+            NavActionButton(
+                icon = MfdIcons.Disconnect,
+                label = "Exit simulation",
+                onClick = viewModel::exitSimulation,
+                modifier = Modifier.width(metrics.wideKeyWidth),
+            )
+        }
     }
 }
 
 /**
- * A locally generated picture standing in for the display's video: colour bars plus a bouncing
- * marker so motion reads instantly, at roughly the real stream's 15 fps. Explicitly labelled
- * `SIMULATED` — this must never be mistakable for the connection-stats overlay a real session
- * shows, since the two mean very different things.
+ * The display's picture, stood in for by a chart scene generated on the device.
+ *
+ * See [drawSimulatedChart] for what it draws and why none of it comes from a photograph. Labelled
+ * `SIMULATED` throughout — this must never be mistakable for a real session, and that badge is the
+ * only thing separating a convincing fake chart from one someone might navigate by.
  */
 @Composable
 private fun SimulatedVideoPane(palette: HelmPalette, modifier: Modifier = Modifier) {
     var frame by remember { mutableIntStateOf(0) }
+    val measurer = rememberTextMeasurer()
 
     LaunchedEffect(Unit) {
         var lastNanos = 0L
@@ -133,31 +153,14 @@ private fun SimulatedVideoPane(palette: HelmPalette, modifier: Modifier = Modifi
         // layout that ships, including at window shapes where a naive aspectRatio would overflow.
         Box(letterboxModifier(maxWidth, maxHeight)) {
             Canvas(Modifier.fillMaxSize()) {
-                val barWidth = size.width / BAR_COLORS.size
-                BAR_COLORS.forEachIndexed { i, color ->
-                    drawRect(
-                        color = color,
-                        topLeft = Offset(i * barWidth, 0f),
-                        size = Size(barWidth, size.height),
-                    )
-                }
-
-                val t = (frame % BOUNCE_PERIOD_FRAMES).toFloat() / BOUNCE_PERIOD_FRAMES
-                val bounce = abs(t * 2f - 1f) // 0 -> 1 -> 0 triangle wave
-                val cx = size.width * (0.08f + 0.84f * bounce)
-                val cy = size.height * 0.5f + size.height * 0.28f * sin(frame * 0.11f)
-                drawCircle(
-                    color = Color.White,
-                    radius = size.minDimension * 0.05f,
-                    center = Offset(cx, cy),
-                )
+                drawSimulatedChart(measurer, frame)
             }
 
             Column(
                 Modifier
-                    .align(Alignment.TopStart)
-                    .background(Color(0x99000000))
-                    .padding(6.dp),
+                    .align(Alignment.BottomStart)
+                    .background(Color(0xCC000000))
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
             ) {
                 Text(
                     "SIMULATED",
@@ -166,30 +169,17 @@ private fun SimulatedVideoPane(palette: HelmPalette, modifier: Modifier = Modifi
                     fontSize = 13.sp,
                 )
                 Text(
-                    "frame $frame",
+                    "not a real display · frame $frame",
                     color = Color(0xCCE8EEF4),
                     fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
+                    fontSize = 10.sp,
                 )
             }
         }
 
-        // Same night dimming as the real pane, from the same helper. Without it simulation showed
-        // a fully bright chart under a night-mode UI, which is precisely the thing night mode
-        // exists to prevent — and precisely the sort of divergence simulation exists to expose.
+        // Same night dimming as the real pane, from the same helper.
         NightDim(palette)
     }
 }
 
-private val BAR_COLORS = listOf(
-    Color(0xFFB0413E),
-    Color(0xFF4E8B5C),
-    Color(0xFFC9A227),
-    Color(0xFF3E6E96),
-    Color(0xFF8B5FA0),
-    Color(0xFF4FA6A0),
-    Color(0xFF808080),
-)
-
-private const val BOUNCE_PERIOD_FRAMES = 90
 private const val FRAME_INTERVAL_NANOS = 1_000_000_000L / 15L

@@ -74,7 +74,9 @@ Nobody should be able to confuse this with a real connection.
   sleep 2
   "$ADB" exec-out screencap -p > 13_3_b.png
   ```
-- **EXPECTED:** The video pane shows coloured vertical bars, a moving marker, and a **`SIMULATED`**
+- **EXPECTED:** The video pane shows a generated chart scene — data bar, coastline, depth
+  contours and soundings, a dashed route with a vessel running down it, a cursor, and a menu
+  column — plus a **`SIMULATED`**
   label with a frame counter overlaid — visibly distinct from the real video pane's stats overlay
   (`fps · q · dec · drop · gap`), which must **not** appear here (there is no decoder running to
   report on). The frame counter has advanced between the two screenshots — it is animating, not a

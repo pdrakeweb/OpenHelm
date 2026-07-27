@@ -82,7 +82,7 @@ carried a comment saying a pinch must never leak, while doing exactly that.
 - **EXPECTED:** The picture itself is visibly knocked back, not merely surrounded by a dark UI. The
   chart is the largest and brightest thing on screen, so a themed UI around a full-brightness video
   destroys night vision about as thoroughly as no night mode at all.
-- **VERIFY:** Screenshot in day and in night; the colour bars must differ in brightness, not only
+- **VERIFY:** Screenshot in high contrast and in night; the chart itself must differ in brightness, not only
   the panel around them. This applies in **simulation as well as a real session** — the first
   version of the dim was applied only to the real pane, and simulation showed a fully bright chart
   under a night-mode UI.

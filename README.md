@@ -48,8 +48,10 @@ Displays are found over mDNS and saved on first connection, where they can be gi
 becomes "Helm". Launching tries the saved displays first, then scans. An address can also be typed
 in, which is the reliable path on boat Wi-Fi that blocks multicast.
 
-Simulation mode runs the whole interface against a locally generated video feed, so the app can be
-explored with no display present. It lasts for the session only.
+Simulation mode runs the whole interface against a chart scene generated on the device — data bar,
+coastline, soundings, a route with a vessel on it, a cursor and a menu column — so the app can be
+explored, and the panel and palettes judged against a realistic picture, with no display present. It
+lasts for the session only.
 
 ## How it works
 

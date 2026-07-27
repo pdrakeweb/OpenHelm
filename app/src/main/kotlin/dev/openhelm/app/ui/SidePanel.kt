@@ -68,8 +68,7 @@ fun SidePanel(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                         onDown = { viewModel.keyDown(row.control.key) },
                         onUp = { viewModel.keyUp(row.control.key) },
                         size = metrics.keyHeight,
-                        // Spans the pair above and below it, gap included.
-                        width = metrics.keyWidth * 2 + metrics.gap,
+                        width = metrics.wideKeyWidth,
                         showLabel = metrics.showLabels,
                     )
 
@@ -133,15 +132,34 @@ internal val panelLayoutControls: List<MfdControl>
         }
     }
 
-/** The size band this panel will use, derived from the height it was actually handed. */
-private data class PanelMetrics(
+/**
+ * The size band this panel will use, derived from the height it was actually handed.
+ *
+ * Internal rather than private because the status bar above the panel uses it too: its trailing
+ * action is sized and inset to match [wideKeyWidth], so that button and the panel's full-width Back
+ * key share an edge down the right of the screen instead of being two arbitrary widths.
+ */
+internal data class PanelMetrics(
     val panelWidth: Dp,
     val keyWidth: Dp,
     val keyHeight: Dp,
     val dialSize: Dp,
     val gap: Dp,
     val showLabels: Boolean,
-)
+) {
+    /** A key spanning the pair above and below it, gap included. */
+    val wideKeyWidth: Dp get() = keyWidth * 2 + gap
+}
+
+/**
+ * The height the status bar is fixed at.
+ *
+ * Fixed rather than measured so the panel's band can be worked out before either is laid out: the
+ * band depends on the height left under the bar, and the bar's trailing button depends on the band.
+ * Measuring both would be circular. It is exactly a helm target plus its padding, which is what the
+ * bar contained anyway.
+ */
+internal val StatusBarHeight: Dp = MinHelmTarget + 8.dp
 
 /**
  * Pick a size band from the available height.
@@ -151,7 +169,7 @@ private data class PanelMetrics(
  * plus gaps. Labels are dropped in the tightest band before key size is — a smaller target is a
  * safety problem, a missing word is not, and every key keeps its spoken description regardless.
  */
-private fun panelMetricsFor(availableHeight: Dp): PanelMetrics = when {
+internal fun panelMetricsFor(availableHeight: Dp): PanelMetrics = when {
     // Expanded — a tablet at a nav station. Use the room.
     availableHeight >= 820.dp -> PanelMetrics(
         panelWidth = 260.dp,

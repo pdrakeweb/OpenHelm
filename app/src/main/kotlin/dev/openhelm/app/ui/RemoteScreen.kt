@@ -3,6 +3,7 @@ package dev.openhelm.app.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -28,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.openhelm.app.rrc.ConnectionState
@@ -58,28 +60,35 @@ fun RemoteScreen(viewModel: MainViewModel, state: ConnectionState, palette: Helm
         if (!viewModel.mirroring) viewModel.selectMirroring(true) else confirmDisconnect = true
     }
 
-    Column(Modifier.fillMaxSize()) {
-        RemoteStatusBar(
-            viewModel = viewModel,
-            state = state,
-            palette = palette,
-            onDisconnectRequest = { confirmDisconnect = true },
-        )
-        if (viewModel.mirroring) {
-            Row(
-                Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-            ) {
-                VideoPane(viewModel, palette, Modifier.weight(1f).fillMaxHeight())
-                SidePanel(viewModel)
-            }
-        } else {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Keypad(
-                    onKeyDown = viewModel::keyDown,
-                    onKeyUp = viewModel::keyUp,
-                )
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // The panel's band comes from the height left under the status bar, and the bar's trailing
+        // Disconnect is sized from that band, so the bar's height is fixed rather than measured.
+        val metrics = panelMetricsFor(maxHeight - StatusBarHeight)
+
+        Column(Modifier.fillMaxSize()) {
+            RemoteStatusBar(
+                viewModel = viewModel,
+                state = state,
+                palette = palette,
+                metrics = metrics,
+                onDisconnectRequest = { confirmDisconnect = true },
+            )
+            if (viewModel.mirroring) {
+                Row(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                ) {
+                    VideoPane(viewModel, palette, Modifier.weight(1f).fillMaxHeight())
+                    SidePanel(viewModel)
+                }
+            } else {
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Keypad(
+                        onKeyDown = viewModel::keyDown,
+                        onKeyUp = viewModel::keyUp,
+                    )
+                }
             }
         }
     }
@@ -119,12 +128,17 @@ private fun RemoteStatusBar(
     viewModel: MainViewModel,
     state: ConnectionState,
     palette: HelmPalette,
+    metrics: PanelMetrics,
     onDisconnectRequest: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp),
+            .height(StatusBarHeight)
+            // No end inset: Disconnect sits in a slot the width of the panel and is centred in it
+            // exactly as the panel centres its own keys, so the two line up in every size band
+            // rather than only in the ones where the key happens to fill its column.
+            .padding(start = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -139,12 +153,15 @@ private fun RemoteStatusBar(
             mirroring = viewModel.mirroring,
             onSelect = viewModel::selectMirroring,
         )
-        HelmActionButton(
-            icon = MfdIcons.Disconnect,
-            label = "Disconnect",
-            onClick = onDisconnectRequest,
-            destructive = true,
-        )
+        Box(Modifier.width(metrics.panelWidth), contentAlignment = Alignment.Center) {
+            HelmActionButton(
+                icon = MfdIcons.Disconnect,
+                label = "Disconnect",
+                onClick = onDisconnectRequest,
+                destructive = true,
+                width = metrics.wideKeyWidth,
+            )
+        }
     }
 }
 
@@ -209,6 +226,7 @@ private fun HelmActionButton(
     label: String,
     onClick: () -> Unit,
     destructive: Boolean = false,
+    width: Dp = 150.dp,
 ) {
     val colors = if (destructive) {
         ButtonDefaults.filledTonalButtonColors(
@@ -224,7 +242,7 @@ private fun HelmActionButton(
         colors = colors,
         modifier = Modifier
             .height(MinHelmTarget)
-            .width(150.dp),
+            .width(width),
     ) {
         Icon(
             imageVector = icon,
