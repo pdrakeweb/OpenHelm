@@ -22,6 +22,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -44,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.openhelm.app.config.RememberedDisplay
+import dev.openhelm.app.ui.icons.MfdIcons
 
 /**
  * The connect screen: the app's front door, and deliberately almost empty.
@@ -83,11 +85,23 @@ fun ConnectScreen(viewModel: MainViewModel) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Text(
-                "OpenHelm",
-                style = MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.Light,
-            )
+            // The wheel appears on the launcher icon and the splash and then, previously, never
+            // again. Pairing it with the wordmark makes the app's one piece of branding actually
+            // part of the app.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = MfdIcons.Wheel,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(34.dp),
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    "OpenHelm",
+                    style = MaterialTheme.typography.headlineLarge,
+                    fontWeight = FontWeight.Light,
+                )
+            }
 
             Spacer(Modifier.height(48.dp))
 
@@ -211,7 +225,7 @@ private fun OverflowMenu(
     val tint = MaterialTheme.colorScheme.onSurfaceVariant
 
     Box(modifier) {
-        TextButton(onClick = { open = true }, modifier = Modifier.size(48.dp)) {
+        TextButton(onClick = { open = true }, modifier = Modifier.size(MinHelmTarget)) {
             Canvas(Modifier.size(20.dp)) {
                 val r = 2.dp.toPx()
                 val cx = size.width / 2f
@@ -220,9 +234,18 @@ private fun OverflowMenu(
                 }
             }
         }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+        DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            // Menus otherwise render on Material's default surface, a flat grey that belongs to no
+            // part of this app's palette.
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        ) {
             DropdownMenuItem(
                 text = { Text("Manual connect") },
+                leadingIcon = {
+                    Icon(MfdIcons.ManualEntry, contentDescription = null)
+                },
                 onClick = {
                     open = false
                     onManual()
@@ -230,6 +253,9 @@ private fun OverflowMenu(
             )
             DropdownMenuItem(
                 text = { Text("Settings") },
+                leadingIcon = {
+                    Icon(MfdIcons.Settings, contentDescription = null)
+                },
                 onClick = {
                     open = false
                     onSettings()

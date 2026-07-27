@@ -32,7 +32,7 @@ Menu 120, Back 27, Range-out 33, Range-in 34, Switch 122, WPT 119.
 - **STEPS:** Tap each control on the side panel and the dial in turn.
   ```bash
   "$ADB" logcat -c
-  for K in "Home" "Menu" "Back" "Rng +" "Rng −" "Swch" "WPT"; do
+  for K in "Home" "Menu" "Back" "Zoom in" "Zoom out" "Pane" "Waypoint"; do
     echo "=== $K ==="; tap_text "$K"; sleep 1
   done
   tail -40 emulator/emu.log

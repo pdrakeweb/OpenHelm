@@ -53,8 +53,12 @@ fun Dial(
     onKeyUp: (MfdKey) -> Unit,
     onRotate: (step: Int, accumulated: Int) -> Unit,
     modifier: Modifier = Modifier,
-    size: Dp = 141.dp,
+    size: Dp = 168.dp,
 ) {
+    // Never shrink below the size at which the hub stops being a legal touch target, whatever a
+    // caller asks for. The panel around this scrolls, so a dial that refuses to shrink pushes
+    // content into a scroll rather than into an unhittable control.
+    val dialSize = size.coerceAtLeast(MinDialSize)
     var pressed by remember { mutableStateOf(DialRegion.NONE) }
     val view = LocalView.current
     val textMeasurer = rememberTextMeasurer()
@@ -73,7 +77,7 @@ fun Dial(
 
     Box(
         modifier = modifier
-            .size(size)
+            .size(dialSize)
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown()
@@ -141,7 +145,7 @@ fun Dial(
                 }
             },
     ) {
-        Canvas(Modifier.size(size)) {
+        Canvas(Modifier.size(dialSize)) {
             val r = this.size.width / 2f
             val c = Offset(r, r)
 
@@ -162,6 +166,33 @@ fun Dial(
                     )
                 }
             }
+
+            // A + and a − on the ring itself. Without these the rotate-to-zoom gesture is
+            // invisible: nothing on screen said the ring did anything, so it read as decoration.
+            val markR = r * 0.92f
+            val markHalf = r * 0.055f
+            val markStroke = 2.dp.toPx()
+            val markColor = arrowColor.copy(alpha = 0.8f)
+            // Plus, on the right of the ring — the direction that zooms in.
+            drawLine(
+                color = markColor,
+                start = Offset(c.x + markR - markHalf, c.y),
+                end = Offset(c.x + markR + markHalf, c.y),
+                strokeWidth = markStroke,
+            )
+            drawLine(
+                color = markColor,
+                start = Offset(c.x + markR, c.y - markHalf),
+                end = Offset(c.x + markR, c.y + markHalf),
+                strokeWidth = markStroke,
+            )
+            // Minus, on the left.
+            drawLine(
+                color = markColor,
+                start = Offset(c.x - markR - markHalf, c.y),
+                end = Offset(c.x - markR + markHalf, c.y),
+                strokeWidth = markStroke,
+            )
 
             // Direction sector backgrounds when pressed.
             if (pressed in listOf(DialRegion.UP, DialRegion.DOWN, DialRegion.LEFT, DialRegion.RIGHT)) {
@@ -235,6 +266,24 @@ private fun directionAt(rel: Offset): Pair<DialRegion, MfdKey> {
     }
 }
 
-private const val OK_RADIUS = 0.32f
+/**
+ * The dial never renders smaller than this: at exactly this size the OK hub is a full
+ * [MinHelmTarget] across (`156 × 0.36 ≈ 56`).
+ *
+ * **One honest caveat.** The hub and the ring clear the helm minimum in every dimension; the four
+ * direction sectors clear it tangentially (~80dp of arc) but their *radial* band is narrower than
+ * 48dp at this size. Widening it further would either swallow the hub or make the whole control
+ * too tall for a phone in landscape. It is an acceptable trade because a direction sector is aimed
+ * outward from a large centre rather than pinpointed, and because the four arrow keys on the
+ * full-screen keypad provide the same four commands at full size — but it is a trade, not
+ * compliance, and it should be re-measured on real hardware with gloves.
+ */
+val MinDialSize: Dp = 156.dp
+
+/**
+ * Hub radius as a fraction of the dial's. Sized so that at [MinDialSize] the hub is a full
+ * [MinHelmTarget] across.
+ */
+private const val OK_RADIUS = 0.36f
 private const val SECTOR_RADIUS = 0.78f
 private const val STEP_DEGREES = 20.0

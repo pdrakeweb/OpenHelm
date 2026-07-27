@@ -8,11 +8,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -32,6 +33,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.openhelm.app.ui.icons.MfdIcons
 import kotlin.math.abs
 import kotlin.math.sin
 
@@ -80,14 +82,20 @@ private fun SimulationStatusBar(viewModel: MainViewModel) {
         Text(
             "Simulated display",
             style = MaterialTheme.typography.bodyMedium,
-            fontFamily = FontFamily.Monospace,
             color = MaterialTheme.colorScheme.tertiary,
         )
         Spacer(Modifier.weight(1f))
-        TextButton(onClick = viewModel::toggleVideo) {
-            Text(if (viewModel.videoEnabled) "Video off" else "Video on")
-        }
-        TextButton(onClick = viewModel::exitSimulation) { Text("Exit simulation") }
+        NavActionButton(
+            icon = if (viewModel.videoEnabled) MfdIcons.VideoOff else MfdIcons.VideoOn,
+            label = if (viewModel.videoEnabled) "Video off" else "Video on",
+            onClick = viewModel::toggleVideo,
+        )
+        Spacer(Modifier.width(8.dp))
+        NavActionButton(
+            icon = MfdIcons.Disconnect,
+            label = "Exit simulation",
+            onClick = viewModel::exitSimulation,
+        )
     }
 }
 
@@ -113,14 +121,10 @@ private fun SimulatedVideoPane(modifier: Modifier = Modifier) {
         }
     }
 
-    Box(modifier.background(Color.Black), contentAlignment = Alignment.Center) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                // The real stream is 800×480 — 5:3. Match it so the layout being explored is the
-                // real one.
-                .aspectRatio(5f / 3f),
-        ) {
+    BoxWithConstraints(modifier.background(Color.Black), contentAlignment = Alignment.Center) {
+        // Same 5:3 fit as the real pane, via the same helper — so what simulation shows is the
+        // layout that ships, including at window shapes where a naive aspectRatio would overflow.
+        Box(letterboxModifier(maxWidth, maxHeight)) {
             Canvas(Modifier.fillMaxSize()) {
                 val barWidth = size.width / BAR_COLORS.size
                 BAR_COLORS.forEachIndexed { i, color ->

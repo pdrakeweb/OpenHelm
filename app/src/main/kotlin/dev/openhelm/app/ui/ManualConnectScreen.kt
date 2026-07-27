@@ -9,8 +9,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -30,6 +33,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.openhelm.app.BuildConfig
+import dev.openhelm.app.ui.icons.MfdIcons
 import dev.openhelm.app.video.RtpTransport
 
 /**
@@ -46,8 +51,17 @@ import dev.openhelm.app.video.RtpTransport
 fun ManualConnectScreen(viewModel: MainViewModel) {
     BackHandler { viewModel.backToConnect() }
 
+    val invalid = viewModel.manualText.isNotBlank() && viewModel.manualEndpoint == null
+    val empty = viewModel.manualText.isBlank()
+
     Column(
-        Modifier.fillMaxSize().padding(24.dp),
+        Modifier
+            .fillMaxSize()
+            // Compact-height landscape put Connect below the fold with no way to reach it, and
+            // the IME covered the field it was editing. Both are scroll/inset problems.
+            .verticalScroll(rememberScrollState())
+            .imePadding()
+            .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         Row(
@@ -60,12 +74,18 @@ fun ManualConnectScreen(viewModel: MainViewModel) {
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Light,
             )
-            TextButton(onClick = viewModel::backToConnect) { Text("Back") }
+            NavActionButton(
+                icon = MfdIcons.Back,
+                label = "Back",
+                onClick = viewModel::backToConnect,
+            )
         }
 
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
             Column(
-                Modifier.widthIn(max = 560.dp),
+                // M3's readable-width guidance: a field stretched across a 10.9" tablet is neither
+                // readable nor reachable.
+                Modifier.widthIn(max = 480.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
                 OutlinedTextField(
@@ -74,10 +94,12 @@ fun ManualConnectScreen(viewModel: MainViewModel) {
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Display address") },
                     placeholder = { Text("192.168.131.1") },
+                    isError = invalid,
                     supportingText = {
                         Text(
-                            if (viewModel.manualText.isNotBlank() && viewModel.manualEndpoint == null) {
-                                "Enter the display's IP address — standard ports are filled in for you"
+                            if (invalid) {
+                                "That doesn't look like an address. Enter the display's IP, " +
+                                    "e.g. 192.168.131.1"
                             } else {
                                 "The display's IP address is enough; standard ports are assumed"
                             },
@@ -86,19 +108,37 @@ fun ManualConnectScreen(viewModel: MainViewModel) {
                     singleLine = true,
                 )
 
-                TransportDropdown(
-                    selected = viewModel.transport,
-                    onSelect = viewModel::selectTransport,
-                )
+                // Debug builds only. The alternative transport exists solely so a simulator behind
+                // an emulator's NAT can deliver frames; against a real display it establishes a
+                // session and then never sends a picture, so shipping it as a user-facing choice
+                // is offering a setting whose only effect is to break video.
+                if (BuildConfig.DEBUG) {
+                    TransportDropdown(
+                        selected = viewModel.transport,
+                        onSelect = viewModel::selectTransport,
+                    )
+                }
 
                 Button(
-                    onClick = {
-                        viewModel.connectManual()
-                    },
+                    onClick = viewModel::connectManual,
                     enabled = viewModel.manualEndpoint != null,
-                    modifier = Modifier.height(52.dp).widthIn(min = 160.dp),
+                    modifier = Modifier.height(MinHelmTarget).widthIn(min = 160.dp),
                 ) {
                     Text("Connect", fontSize = 16.sp)
+                }
+
+                // Say *why* the primary action won't fire. A disabled button with no explanation
+                // is the app's one primary action failing silently.
+                if (empty || invalid) {
+                    Text(
+                        text = if (empty) {
+                            "Enter the display's address to connect."
+                        } else {
+                            "Fix the address above to connect."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }

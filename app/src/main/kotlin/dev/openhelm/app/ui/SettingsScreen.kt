@@ -7,10 +7,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.openhelm.app.config.RememberedDisplay
+import dev.openhelm.app.ui.icons.MfdIcons
 
 /**
  * Settings: exploring the app without a display, and managing the ones already known.
@@ -59,7 +65,11 @@ fun SettingsScreen(viewModel: MainViewModel) {
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Light,
             )
-            TextButton(onClick = viewModel::backToConnect) { Text("Done") }
+            NavActionButton(
+                icon = MfdIcons.Confirm,
+                label = "Done",
+                onClick = viewModel::backToConnect,
+            )
         }
 
         SimulationSection(
@@ -142,9 +152,12 @@ private fun DisplaySettingRow(
     // the change is committed with Save.
     var name by rememberSaveable(display.endpoint.host) { mutableStateOf(display.name ?: "") }
     val dirty = name.trim() != (display.name ?: "")
+    var confirmForget by remember { mutableStateOf(false) }
 
     Card(
-        Modifier.fillMaxWidth(),
+        // Constrained rather than full-bleed: a name field spanning a 10.9" tablet is neither
+        // readable nor reachable.
+        Modifier.fillMaxWidth().widthIn(max = 480.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -166,11 +179,51 @@ private fun DisplaySettingRow(
                 fontFamily = FontFamily.Monospace,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = { onSaveName(name) }, enabled = dirty) { Text("Save") }
-                Spacer(Modifier.size(4.dp))
-                TextButton(onClick = onForget) { Text("Forget") }
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // Save is the affirmative action, so it gets the filled weight. Forget is
+                // destructive and stays quiet until it is actually reached for — previously it
+                // was the *brighter* of the two, sitting next to a greyed-out Save.
+                Button(
+                    onClick = { onSaveName(name) },
+                    enabled = dirty,
+                    modifier = Modifier.height(MinHelmTarget),
+                ) { Text("Save") }
+                Spacer(Modifier.weight(1f))
+                TextButton(
+                    onClick = { confirmForget = true },
+                    modifier = Modifier.height(MinHelmTarget),
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error,
+                    ),
+                ) { Text("Forget") }
             }
         }
+    }
+
+    if (confirmForget) {
+        AlertDialog(
+            onDismissRequest = { confirmForget = false },
+            title = { Text("Forget ${display.label}?") },
+            text = {
+                Text(
+                    "OpenHelm will stop reconnecting to it automatically, and any name you gave " +
+                        "it is lost. You can connect to it again from the connect screen.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmForget = false
+                        onForget()
+                    },
+                ) { Text("Forget") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmForget = false }) { Text("Keep") }
+            },
+        )
     }
 }

@@ -27,6 +27,9 @@ android {
 
     buildFeatures {
         compose = true
+        // The video pane's diagnostic stats overlay and the simulator-only TCP transport are
+        // gated on BuildConfig.DEBUG — they are development instrumentation, not shipped UI.
+        buildConfig = true
     }
 }
 

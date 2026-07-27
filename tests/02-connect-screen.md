@@ -134,7 +134,7 @@ A judgement call, but a specified one: the scanning state must be what the eye l
 - **STEPS:**
   ```bash
   # from the remote screen
-  tap_text "Disconnect"
+  tap_text "Disconnect"; sleep 1; tap_text "Disconnect"   # second tap confirms
   sleep 3
   "$ADB" exec-out screencap -p > 02_6_idle.png
   "$ADB" exec-out uiautomator dump /dev/tty | tr '>' '\n' | grep -iE 'text="(Scan again|Disconnected|No display found)"'

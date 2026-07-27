@@ -15,7 +15,7 @@ state published from one place, and a disconnect that stays disconnected.
 - **SETUP:** Connected, display still reachable.
 - **STEPS:**
   ```bash
-  tap_text "Disconnect"
+  tap_text "Disconnect"; sleep 1; tap_text "Disconnect"   # second tap confirms
   sleep 10
   "$ADB" exec-out screencap -p > 09_1_disconnected.png
   tail -3 emulator/emu.log
@@ -164,7 +164,7 @@ app; **nothing is connected** is not.
   PID=$("$ADB" shell pidof $PKG | tr -d '\r')
   echo "before: $("$ADB" shell cat /proc/$PID/status | grep -i Threads)"
   for i in $(seq 1 8); do
-    tap_text "Disconnect"; sleep 2
+    tap_text "Disconnect"; sleep 1; tap_text "Disconnect"; sleep 2
     tap_text "Scan again"; sleep 6
   done
   PID=$("$ADB" shell pidof $PKG | tr -d '\r')

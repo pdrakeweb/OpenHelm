@@ -5,6 +5,9 @@ import android.content.pm.ActivityInfo
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 /**
  * Locks the window to landscape for as long as the caller stays composed, and releases the lock
@@ -28,6 +31,32 @@ fun LockLandscape() {
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         onDispose {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
+}
+
+/**
+ * Hides the system bars for as long as the caller stays composed, restoring them on the way out.
+ *
+ * A mounted phone showing a chart wants the whole panel: the gesture pill otherwise sits over the
+ * bottom edge of the video, and the status bar steals height that the 5:3 picture needs. Bars stay
+ * swipe-reachable (`BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`) rather than being locked away, so
+ * nothing traps the user.
+ */
+@Composable
+fun ImmersiveWhileConnected() {
+    val view = LocalView.current
+    val context = LocalContext.current
+    DisposableEffect(Unit) {
+        val window = (context as? Activity)?.window
+        if (window == null) {
+            onDispose { }
+        } else {
+            val controller = WindowInsetsControllerCompat(window, view)
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+            onDispose { controller.show(WindowInsetsCompat.Type.systemBars()) }
         }
     }
 }

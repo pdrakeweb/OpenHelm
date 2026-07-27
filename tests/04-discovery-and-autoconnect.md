@@ -161,7 +161,7 @@ discovery fails silently on exactly the hardware where it matters.
 - **SETUP:** Connected, with the display still reachable.
 - **STEPS:**
   ```bash
-  tap_text "Disconnect"
+  tap_text "Disconnect"; sleep 1; tap_text "Disconnect"   # second tap confirms
   sleep 8
   "$ADB" exec-out screencap -p > 04_8_stays.png
   ```

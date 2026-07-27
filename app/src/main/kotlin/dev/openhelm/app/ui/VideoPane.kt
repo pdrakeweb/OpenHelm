@@ -10,8 +10,11 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
@@ -30,10 +33,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.openhelm.app.BuildConfig
 import dev.openhelm.app.video.RtpTransport
 import dev.openhelm.app.video.VideoState
 
@@ -73,16 +79,11 @@ fun VideoPane(viewModel: MainViewModel, modifier: Modifier = Modifier) {
         view.invalidate()
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier.background(Color.Black),
         contentAlignment = Alignment.Center,
     ) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                // The stream is 800×480 — 5:3. Letterbox: a stretched chart is a wrong chart.
-                .aspectRatio(5f / 3f),
-        ) {
+        Box(letterboxModifier(maxWidth, maxHeight)) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { context ->
@@ -188,36 +189,75 @@ fun VideoPane(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                 CircularProgressIndicator(Modifier.size(48.dp))
             }
 
-            is VideoState.Failed -> {
-                Text(
-                    "Video: ${s.reason} — retrying",
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(16.dp),
-                )
-            }
+            is VideoState.Failed -> StaleVideoOverlay(reason = friendlyReason(s.reason))
 
             VideoState.Streaming -> {}
         }
 
         // The overlay that keeps us honest: if these numbers regress, the build is broken.
-        Text(
-            text = buildString {
-                append(stats.fps).append(" fps · q").append(stats.queueDepth)
-                append(" · dec ").append(stats.decodeMs).append(" ms")
-                append(" · drop ").append(stats.dropped)
-                append(" · gap ").append(stats.discontinuities)
-                if (scale > 1f) append(" · ×%.1f".format(scale))
-                if (stats.transport == RtpTransport.TCP_INTERLEAVED) append(" · TCP (sim)")
-            },
-            color = Color(0xCCE8EEF4),
-            fontSize = 11.sp,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(6.dp)
-                .background(Color(0x66000000)),
-        )
+        // Debug-build only — it is diagnostic instrumentation, not something to show at a helm.
+        if (BuildConfig.DEBUG) {
+            Text(
+                text = buildString {
+                    append(stats.fps).append(" fps · q").append(stats.queueDepth)
+                    append(" · dec ").append(stats.decodeMs).append(" ms")
+                    append(" · drop ").append(stats.dropped)
+                    append(" · gap ").append(stats.discontinuities)
+                    if (scale > 1f) append(" · ×%.1f".format(scale))
+                    if (stats.transport == RtpTransport.TCP_INTERLEAVED) append(" · TCP (sim)")
+                },
+                color = Color(0xCCE8EEF4),
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(6.dp)
+                    .background(Color(0x66000000)),
+            )
+        }
+    }
+}
+
+/**
+ * What the user sees when the video link drops.
+ *
+ * **This is a safety treatment, not a status message.** When the stream fails the last decoded
+ * frame stays on the `TextureView` — a chart, at full brightness, looking exactly like live video.
+ * Someone glancing at a mounted phone mid-manoeuvre could act on a position that is now minutes
+ * stale. So the frozen picture is deliberately buried: a heavy scrim knocks it back, and a
+ * high-contrast banner states plainly that it is not live.
+ *
+ * It does not auto-dismiss, and it is deliberately **not** a Snackbar — a transient message that
+ * clears itself is precisely the wrong pattern for a condition that is still true after it fades.
+ */
+@Composable
+private fun StaleVideoOverlay(reason: String) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            // Heavy enough that the frozen chart underneath cannot be mistaken for live video.
+            .background(Color(0xD9000000)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(24.dp),
+        ) {
+            Text(
+                "VIDEO NOT LIVE",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "The picture behind this is frozen — $reason. Reconnecting…",
+                color = Color.White,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+            )
+        }
     }
 }
 

@@ -23,7 +23,7 @@ number `E70021` is the reliable identifier). "Helm" beats a wrong model string.
   "$ADB" shell am start -n $ACT; sleep 4
   # connect by whatever route your rig allows (manual on rig A)
   # ... then return to the connect screen:
-  tap_text "Disconnect"; sleep 3
+  tap_text "Disconnect"; sleep 1; tap_text "Disconnect"; sleep 3
   "$ADB" exec-out screencap -p > 05_1_remembered.png
   ```
 - **EXPECTED:** A recent button now exists for that display. Its label is the model string if the

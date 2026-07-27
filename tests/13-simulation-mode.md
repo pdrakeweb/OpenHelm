@@ -93,7 +93,7 @@ Nobody should be able to confuse this with a real connection.
   background changes while held, per [Keypad.kt](../app/src/main/kotlin/dev/openhelm/app/ui/Keypad.kt)'s
   existing pressed-state handling).
   ```bash
-  for K in "Home" "Menu" "Back" "Rng +" "Rng −" "Swch" "WPT"; do
+  for K in "Home" "Menu" "Back" "Zoom in" "Zoom out" "Pane" "Waypoint"; do
     tap_text "$K"; sleep 0.5
   done
   "$ADB" exec-out screencap -p > 13_4_after.png
@@ -141,11 +141,11 @@ anywhere, including on a boat's real Wi-Fi without risk of confusing a real disp
   ```bash
   tap_text "Video off"; sleep 1; "$ADB" exec-out screencap -p > 13_6_off.png
   tap_text "Video on";  sleep 1; "$ADB" exec-out screencap -p > 13_6_on.png
-  tap_text "Remote Ctrl"; sleep 1; "$ADB" exec-out screencap -p > 13_6_fullscreen.png
+  tap_text "Video off"; sleep 1; "$ADB" exec-out screencap -p > 13_6_fullscreen.png
   ```
 - **EXPECTED:** "Video off" replaces the side-by-side view with the full-screen keypad (simulated
   video pauses/disappears, not just hidden behind the panel); "Video on" restores it. The side
-  panel's "Remote Ctrl" key also switches to full-screen, exactly mirroring the real remote screen's
+  status bar's Video off button switches to full-screen, exactly mirroring the real remote screen's
   behaviour ([08-touch-and-gestures.md](08-touch-and-gestures.md) 08.7).
 - **VERIFY:** The three screenshots show the three states correctly.
 - **PASS/FAIL:** PASS if mode switching matches the real session's behaviour. FAIL if either control
