@@ -85,6 +85,9 @@ fun Dial(
     val heat = remember { FloatArray(SectionCount) }
     var frameTick by remember { mutableIntStateOf(0) }
     var turning by remember { mutableStateOf(false) }
+    // The tick sitting between the two darkened sections. Drawn boldly, so the mark reads as a
+    // pointer rather than as a gap in the ring.
+    var markerTick by remember { mutableIntStateOf(-1) }
 
     LaunchedEffect(turning) {
         var last = 0L
@@ -175,7 +178,7 @@ fun Dial(
                             // The ring: turn angle travel into discrete steps.
                             pressed = DialRegion.RING
                             turning = true
-                            heatSectionsAt(heat, atan2(rel.y, rel.x))
+                            markerTick = heatSectionsAt(heat, atan2(rel.y, rel.x))
                             var lastAngle = Math.toDegrees(atan2(rel.y, rel.x).toDouble())
                             var travel = 0.0
                             var accumulated = 0
@@ -187,7 +190,7 @@ fun Dial(
                                 val p = change.position - center
                                 // Driven by where the thumb *is*, not by detents crossed, so the
                                 // ring responds to a press before anything has turned at all.
-                                heatSectionsAt(heat, atan2(p.y, p.x))
+                                markerTick = heatSectionsAt(heat, atan2(p.y, p.x))
                                 val angle = Math.toDegrees(atan2(p.y, p.x).toDouble())
                                 var delta = angle - lastAngle
                                 while (delta > 180) delta -= 360
@@ -269,6 +272,24 @@ fun Dial(
                         end = Offset(c.x, c.y - r * 0.88f),
                         strokeWidth = 2.dp.toPx(),
                     )
+                }
+            }
+
+            // The pointer, in the middle of the darkened pair. Its opacity comes from the sections
+            // either side of it, so it fades out with them on release rather than disappearing the
+            // instant the finger lifts.
+            if (markerTick >= 0) {
+                val prev = ((markerTick - 1) % SectionCount + SectionCount) % SectionCount
+                val markerHeat = maxOf(heat[prev], heat[markerTick])
+                if (markerHeat > 0f) {
+                    rotate(degrees = markerTick * STEP_DEGREES.toFloat(), pivot = c) {
+                        drawLine(
+                            color = tickColor.copy(alpha = markerHeat),
+                            start = Offset(c.x, c.y - r * 0.995f),
+                            end = Offset(c.x, c.y - r * 0.845f),
+                            strokeWidth = 4.dp.toPx(),
+                        )
+                    }
                 }
             }
 
@@ -450,19 +471,26 @@ private const val FadeSeconds = 0.75f
 private const val TrailDepth = 0.85f
 
 /**
- * Darken the two sections either side of the detent nearest [radians], measured from the dial's
- * centre in the same frame the gesture uses.
+ * Darken the two sections around the point **opposite** [radians], and return the index of the tick
+ * between them.
  *
- * Two rather than one because a thumb spans more than a single 20-degree section, and lighting only
- * the section it happens to be inside made the trail flicker between neighbours as the angle
- * crossed a boundary.
+ * Opposite, not under, is the whole point. Marking the detent nearest the thumb put the indicator
+ * under the hand about as often as not — the one place on the ring guaranteed to be hidden while
+ * the ring is being used. Half a turn away is always visible, and rotates with the finger at the
+ * same rate and in the same direction, so nothing about the reading changes except that you can see
+ * it.
+ *
+ * Two sections rather than one because a thumb spans more than a single 20-degree section, and
+ * lighting only the one it happens to be inside made the mark flicker between neighbours as the
+ * angle crossed a boundary. The returned tick is their shared boundary, which is the middle of the
+ * pair.
  */
-private fun heatSectionsAt(heat: FloatArray, radians: Float) {
-    val degrees = Math.toDegrees(radians.toDouble()).toFloat() + 90f
+private fun heatSectionsAt(heat: FloatArray, radians: Float): Int {
+    val degrees = Math.toDegrees(radians.toDouble()).toFloat() + 90f + 180f
     val detent = Math.round(degrees / STEP_DEGREES.toFloat())
     val n = heat.size
-    val before = ((detent - 1) % n + n) % n
-    val after = ((detent) % n + n) % n
-    heat[before] = 1f
-    heat[after] = 1f
+    val middle = (detent % n + n) % n
+    heat[((detent - 1) % n + n) % n] = 1f
+    heat[middle] = 1f
+    return middle
 }

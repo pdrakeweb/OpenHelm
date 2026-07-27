@@ -353,12 +353,17 @@ on, so any feedback drawn under it is feedback nobody sees.
 - **STEPS:** Rest a thumb on the outer ring and sweep it round, slowly, in both directions. Then
   press the ring and hold still without turning.
 - **EXPECTED:**
-  - The ring lights to the pressed colour on contact, and the **two sections either side of the
-    nearest detent go dark** — before anything has turned. Two rather than one because a thumb
-    spans more than one 20° section.
-  - Turning drags that dark pair round with the finger, and the sections behind it **fade back to
-    the lit colour** over about three quarters of a second. The result is a comet tail: darkest at
-    the thumb, fading to nothing behind. Direction is legible from a still frame.
+  - The ring lights to the pressed colour on contact, and **two sections go dark directly opposite
+    the thumb**, with a bold marker tick between them — before anything has turned. Opposite, not
+    under: the detent nearest the finger is the one place on the ring guaranteed to be covered by
+    the hand using it. Two sections rather than one because a thumb spans more than one 20° section.
+  - Turning carries that mark round at the same rate and in the same direction as the finger, half
+    a turn away, and the sections behind it **fade back to the lit colour** over about three
+    quarters of a second. The result is a comet tail: darkest at the mark, fading to nothing behind.
+    Direction is legible from a still frame.
+  - **Check the antipode explicitly.** Press the top of the ring and confirm the mark appears at the
+    bottom; press the left and confirm it appears on the right. If it ever appears under the finger,
+    that is the defect this exists to fix.
   - The trail is a **darkening**, never a brightening. On a night bridge extra light is the wrong
     way round, and this is the palette where the ring is doing the most work.
   - Releasing lets the tail fade out rather than clearing it instantly.
