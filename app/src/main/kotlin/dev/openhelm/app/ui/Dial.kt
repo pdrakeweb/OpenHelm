@@ -1,7 +1,5 @@
 package dev.openhelm.app.ui
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -15,9 +13,11 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
@@ -72,19 +72,32 @@ fun Dial(
     val dialSize = size.coerceAtLeast(MinDialSize)
     var pressed by remember { mutableStateOf(DialRegion.NONE) }
 
-    // Rotation readout. The ring is turned with a thumb that covers the arc it is on, so none of
-    // this is drawn where the finger is: the count goes in the hub and the lit detent travels the
-    // whole ring, both of which stay visible around the hand.
-    var ringSteps by remember { mutableIntStateOf(0) }
-    var lastDirection by remember { mutableIntStateOf(0) }
-    // Increments on every detent, including repeats in the same direction, so the flash retriggers.
-    var detents by remember { mutableIntStateOf(0) }
-    val detentFlash = remember { Animatable(0f) }
+    // Rotation feedback, as a trail burned into the ring itself.
+    //
+    // The ring is divided into one section per detent. The two either side of the detent nearest
+    // the thumb are darkened, and every section fades back to the lit colour over [FadeSeconds] —
+    // so turning the dial drags a dark comet tail round behind the finger, and the tail is the
+    // movement. Nothing is drawn under the thumb, which covers the arc it is on.
+    //
+    // [heat] is a plain array rather than state: it is written from the gesture and read from the
+    // draw, and [frameTick] is what actually invalidates, once per frame, for as long as there is
+    // anything left to fade.
+    val heat = remember { FloatArray(SectionCount) }
+    var frameTick by remember { mutableIntStateOf(0) }
+    var turning by remember { mutableStateOf(false) }
 
-    LaunchedEffect(detents) {
-        if (detents == 0) return@LaunchedEffect
-        detentFlash.snapTo(1f)
-        detentFlash.animateTo(0f, tween(durationMillis = 260))
+    LaunchedEffect(turning) {
+        var last = 0L
+        // Keeps running past release so the tail fades out rather than vanishing with the finger.
+        while (turning || heat.any { it > 0f }) {
+            withFrameNanos { now ->
+                val dt = if (last == 0L) 0f else (now - last) / 1_000_000_000f
+                last = now
+                for (i in heat.indices) heat[i] = (heat[i] - dt / FadeSeconds).coerceAtLeast(0f)
+                frameTick++
+            }
+        }
+        frameTick++
     }
     val view = LocalView.current
     val textMeasurer = rememberTextMeasurer()
@@ -161,8 +174,8 @@ fun Dial(
                         else -> {
                             // The ring: turn angle travel into discrete steps.
                             pressed = DialRegion.RING
-                            ringSteps = 0
-                            lastDirection = 0
+                            turning = true
+                            heatSectionsAt(heat, atan2(rel.y, rel.x))
                             var lastAngle = Math.toDegrees(atan2(rel.y, rel.x).toDouble())
                             var travel = 0.0
                             var accumulated = 0
@@ -172,6 +185,9 @@ fun Dial(
                                     ?: event.changes.firstOrNull()
                                 if (change == null || !change.pressed) break
                                 val p = change.position - center
+                                // Driven by where the thumb *is*, not by detents crossed, so the
+                                // ring responds to a press before anything has turned at all.
+                                heatSectionsAt(heat, atan2(p.y, p.x))
                                 val angle = Math.toDegrees(atan2(p.y, p.x).toDouble())
                                 var delta = angle - lastAngle
                                 while (delta > 180) delta -= 360
@@ -181,25 +197,19 @@ fun Dial(
                                 while (travel >= STEP_DEGREES) {
                                     travel -= STEP_DEGREES
                                     accumulated++
-                                    ringSteps = accumulated
-                                    lastDirection = 1
-                                    detents++
                                     HelmHaptics.detent(view)
                                     onRotate(1, accumulated)
                                 }
                                 while (travel <= -STEP_DEGREES) {
                                     travel += STEP_DEGREES
                                     accumulated--
-                                    ringSteps = accumulated
-                                    lastDirection = -1
-                                    detents++
                                     HelmHaptics.detent(view)
                                     onRotate(-1, accumulated)
                                 }
                                 change.consume()
                             }
                             pressed = DialRegion.NONE
-                            lastDirection = 0
+                            turning = false
                         }
                     }
                 }
@@ -219,62 +229,45 @@ fun Dial(
             // like the targets they are, instead of empty space around a ring.
             drawCircle(color = okColor, radius = r * SECTOR_RADIUS, center = c)
 
-            // Outer ring, with tick marks so rotation reads as rotation.
-            drawCircle(
-                color = if (pressed == DialRegion.RING) sectorPressedColor else ringColor,
-                radius = r * 0.92f,
-                center = c,
-                style = Stroke(width = r * 0.14f),
-            )
-            // A pulse across the whole ring on each click, so a detent registers even in peripheral
-            // vision and even where the hand is in the way.
-            if (detentFlash.value > 0f) {
-                drawCircle(
-                    color = arrowPressedColor.copy(alpha = 0.45f * detentFlash.value),
-                    radius = r * 0.92f,
-                    center = c,
-                    style = Stroke(width = r * 0.14f),
+            // The ring, drawn one section per detent so the trail can live in it.
+            //
+            // Reading frameTick here is what ties this drawing to the fade loop: it changes every
+            // frame while anything is still fading, which is what re-runs this block.
+            @Suppress("UNUSED_EXPRESSION") frameTick
+
+            val ringR = r * 0.92f
+            val ringStroke = Stroke(width = r * 0.14f)
+            val ringBox = androidx.compose.ui.geometry.Size(ringR * 2, ringR * 2)
+            val ringTopLeft = Offset(c.x - ringR, c.y - ringR)
+            val litRing = if (pressed == DialRegion.RING) sectorPressedColor else ringColor
+
+            repeat(SectionCount) { section ->
+                // Sections overlap by a whisker; without it antialiasing leaves hairlines between
+                // them and the ring looks perforated.
+                drawArc(
+                    // Heat pulls the section towards the resting fill and it fades back — so the
+                    // trail is a darkening, which reads on a lit ring without adding light. On a
+                    // night bridge a brightening trail would be the wrong way round.
+                    color = lerp(litRing, ringColor, heat[section] * TrailDepth),
+                    startAngle = section * STEP_DEGREES.toFloat() - 90f - 0.3f,
+                    sweepAngle = STEP_DEGREES.toFloat() + 0.6f,
+                    useCenter = false,
+                    topLeft = ringTopLeft,
+                    size = ringBox,
+                    style = ringStroke,
                 )
             }
-            // One tick per detent, not a decorative twelve. The ring turns [STEP_DEGREES] to a
-            // click, so marking it at exactly that interval means the lit tick advances by one mark
-            // per click and the marks themselves become the count.
-            val tickCount = (360 / STEP_DEGREES).toInt()
-            val activeTick = ((ringSteps % tickCount) + tickCount) % tickCount
-            val rotating = pressed == DialRegion.RING
 
-            repeat(tickCount) { i ->
-                // How far behind the live tick this one is, counting against the direction of
-                // travel — so the lit trail trails, and which way it is moving is legible from a
-                // still frame as well as from the movement.
-                val behind = if (lastDirection >= 0) {
-                    ((activeTick - i) + tickCount) % tickCount
-                } else {
-                    ((i - activeTick) + tickCount) % tickCount
-                }
-                val lit = rotating && lastDirection != 0 && behind <= TRAIL_LENGTH
-
-                // Ticks are drawn against the ring, and the ring changes colour when it is being
-                // turned — so they take the ring's own content colour rather than a fixed one. The
-                // first attempt drew the live tick in the pressed colour, which is exactly what the
-                // ring underneath had just become, so it was visible only where it overhung the
-                // body.
-                val onRing = if (rotating) arrowPressedColor else arrowColor
-                val alpha = when {
-                    lit && behind == 0 -> 1f
-                    lit -> 0.7f - behind * 0.18f
-                    rotating -> 0.3f
-                    else -> 0.5f
-                }
-                // Kept inside the ring band: a tick that reached over the body would cross from one
-                // background to the other and lose its contrast halfway along.
-                val inner = if (lit && behind == 0) 0.855f else 0.88f
+            // One tick per detent, marking the section boundaries. The ring turns [STEP_DEGREES] to
+            // a click, so the marks are the detents rather than decoration.
+            val tickColor = if (pressed == DialRegion.RING) arrowPressedColor else arrowColor
+            repeat(SectionCount) { i ->
                 rotate(degrees = i * STEP_DEGREES.toFloat(), pivot = c) {
                     drawLine(
-                        color = onRing.copy(alpha = alpha.coerceIn(0f, 1f)),
+                        color = tickColor.copy(alpha = 0.45f),
                         start = Offset(c.x, c.y - r * 0.985f),
-                        end = Offset(c.x, c.y - r * inner),
-                        strokeWidth = (if (lit && behind == 0) 4.dp else 2.dp).toPx(),
+                        end = Offset(c.x, c.y - r * 0.88f),
+                        strokeWidth = 2.dp.toPx(),
                     )
                 }
             }
@@ -357,15 +350,7 @@ fun Dial(
                 center = c,
                 style = Stroke(width = 2.dp.toPx()),
             )
-            // The hub carries the count while the ring is turning. It is the one part of the dial a
-            // thumb on the ring cannot cover, which is the whole reason the readout lives here
-            // rather than next to the finger.
-            val hubText = if (pressed == DialRegion.RING && ringSteps != 0) {
-                if (ringSteps > 0) "+$ringSteps" else "−${-ringSteps}"
-            } else {
-                "OK"
-            }
-            val label = textMeasurer.measure(hubText, okTextStyle)
+            val label = textMeasurer.measure("OK", okTextStyle)
             drawText(
                 label,
                 topLeft = Offset(c.x - label.size.width / 2f, c.y - label.size.height / 2f),
@@ -454,10 +439,30 @@ private const val OK_RADIUS = 0.36f
 private const val SECTOR_RADIUS = 0.78f
 private const val STEP_DEGREES = 20.0
 
+/** One ring section per detent. */
+private val SectionCount = (360 / STEP_DEGREES).toInt()
+
+/** How long a darkened section takes to fade back. Long enough to leave a visible tail on a sweep. */
+private const val FadeSeconds = 0.75f
+
+/** How far towards the resting fill a freshly touched section goes. Short of the whole way, so the
+ * ring never looks broken. */
+private const val TrailDepth = 0.85f
+
 /**
- * How many detents behind the live one stay lit.
+ * Darken the two sections either side of the detent nearest [radians], measured from the dial's
+ * centre in the same frame the gesture uses.
  *
- * Three: enough for the direction to read as movement rather than as a single mark jumping about,
- * short enough that the trail does not wrap round and meet its own head on a fast sweep.
+ * Two rather than one because a thumb spans more than a single 20-degree section, and lighting only
+ * the section it happens to be inside made the trail flicker between neighbours as the angle
+ * crossed a boundary.
  */
-private const val TRAIL_LENGTH = 3
+private fun heatSectionsAt(heat: FloatArray, radians: Float) {
+    val degrees = Math.toDegrees(radians.toDouble()).toFloat() + 90f
+    val detent = Math.round(degrees / STEP_DEGREES.toFloat())
+    val n = heat.size
+    val before = ((detent - 1) % n + n) % n
+    val after = ((detent) % n + n) % n
+    heat[before] = 1f
+    heat[after] = 1f
+}

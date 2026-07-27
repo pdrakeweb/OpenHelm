@@ -346,27 +346,28 @@ and so were the arrows.
 
 ### 15.21 The rotary ring shows what it is doing
 
-Rotation was silent apart from a very light tick. The finger turning the ring covers the arc it is
-on, so any feedback drawn under the thumb is feedback nobody sees.
+Rotation was silent apart from a very light tick. The thumb turning the ring covers the arc it is
+on, so any feedback drawn under it is feedback nobody sees.
 
 - **SETUP:** Connected or simulating, in any palette.
-- **STEPS:** Rest a thumb on the outer ring and sweep it round, slowly, in both directions.
-- **EXPECTED, while turning:**
-  - The **hub** shows a running signed count — `+3`, `−2` — in place of `OK`, and returns to `OK` on
-    release. The hub is the one part of the dial a thumb on the ring cannot cover, which is why the
-    readout is there.
-  - One **tick per detent** is marked around the ring, and the lit tick advances by exactly one mark
-    per click, with two or three dimmer marks trailing it. Direction is readable from a still frame,
-    not only from the movement.
-  - The whole ring **pulses** on each click.
-  - Ticks contrast with the ring in both states: light marks on the resting ring, dark marks on the
-    lit one. A tick drawn in the ring's own pressed colour is invisible, which is what the first
-    attempt did.
-- **EXPECTED, on release:** The hub returns to `OK`, the trail clears, the ring returns to rest.
+- **STEPS:** Rest a thumb on the outer ring and sweep it round, slowly, in both directions. Then
+  press the ring and hold still without turning.
+- **EXPECTED:**
+  - The ring lights to the pressed colour on contact, and the **two sections either side of the
+    nearest detent go dark** — before anything has turned. Two rather than one because a thumb
+    spans more than one 20° section.
+  - Turning drags that dark pair round with the finger, and the sections behind it **fade back to
+    the lit colour** over about three quarters of a second. The result is a comet tail: darkest at
+    the thumb, fading to nothing behind. Direction is legible from a still frame.
+  - The trail is a **darkening**, never a brightening. On a night bridge extra light is the wrong
+    way round, and this is the palette where the ring is doing the most work.
+  - Releasing lets the tail fade out rather than clearing it instantly.
+  - The hub reads **OK** throughout. There is no numeric readout and nothing flashes.
 - **VERIFY:** A screenshot taken mid-sweep is the practical check — `adb shell input swipe` along
-  the ring with a long duration, screenshot while it runs.
-- **PASS/FAIL:** PASS if direction and count are legible without moving the hand. FAIL if the only
-  indication is under the finger.
+  the ring with a long duration, screenshot while it runs. A chord across the ring works; a swipe
+  through the centre does not, since the angle is undefined there.
+- **PASS/FAIL:** PASS if direction and movement read without moving the hand off the ring. FAIL if
+  the only indication is under the finger, or if anything flashes.
 
 ---
 
