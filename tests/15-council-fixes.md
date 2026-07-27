@@ -218,3 +218,54 @@ cd openhelm && ./gradlew :app:testDebugUnitTest
   dial sector mapping, failure-text sanitising, and the remembered-display codec.
 - **PASS/FAIL:** PASS if the suite is green. A failure here is a real regression, not a flake —
   nothing in it touches the network, the clock, or a device.
+
+---
+
+### 15.14 The side panel is arranged for the hand, not sorted into a list
+
+- **SETUP:** Connected or simulating.
+- **EXPECTED:** Top to bottom: **Home | Menu**, then the **rotary dial**, then **Back** on a
+  full-width row of its own, then **Zoom in | Zoom out**, then **Pane | Waypoint**. The dial sits
+  in the middle where the hand rests, and Back — reached for constantly while walking a menu — is
+  directly under it and double width, so it can be hit without looking.
+- **VERIFY:**
+  ```bash
+  "$ADB" exec-out uiautomator dump /sdcard/u.xml >/dev/null
+  "$ADB" exec-out cat /sdcard/u.xml | tr '<' '
+'     | grep -oE 'content-desc="(Go|Open|Zoom|Switch|Place|Cursor)[^"]*"|bounds="[^"]*"'
+  ```
+  Read the bounds top-down. Back's width must be about twice a normal key's.
+- **KNOWN, and correct:** in the **compact** height band (e.g. 891 × 411dp) the panel is taller
+  than the window and the last pair sits below the fold — the panel scrolls to reach it. That is
+  the designed answer to a window that cannot hold the layout, and it is preferred to shrinking the
+  dial, whose OK hub is already exactly at the 56dp floor. At medium and expanded sizes everything
+  is visible at once.
+- **PASS/FAIL:** PASS if the order is as above and nothing overlaps. FAIL on a different order, or
+  on a control that cannot be reached even by scrolling.
+
+---
+
+### 15.15 Every palette colours its own buttons
+
+The original defect: none of the three schemes defined `secondaryContainer`, so Material filled it
+from its **baseline purple**. *Done*, *Back*, *Video off* and *Exit simulation* were lavender in
+every palette — including night, where a bright non-red button is exactly what the mode exists to
+remove.
+
+- **SETUP:** Settings, in each of the three palettes in turn.
+- **EXPECTED:** *Done* is blue-ish in day, blue in dusk, and **red** in night. No button anywhere
+  is purple. The destructive *Disconnect* stays distinguishable in all three without going bright.
+- **VERIFY:** Screenshot Settings and the remote status bar in each palette.
+- **PASS/FAIL:** PASS if no control ignores the palette. FAIL on any lavender.
+
+---
+
+### 15.16 Settings names the palettes; the status bar cycles them
+
+- **EXPECTED:** Settings shows **Day / Dusk / Night** as three labelled options with a line saying
+  what each is for, the current one marked by a **border** rather than a bright fill — a filled
+  selection made the chosen chip the brightest thing on a night screen, which defeats the point of
+  the control. Both surfaces write the same persisted value.
+- **VERIFY:** Choose Night in Settings, leave, and confirm the status-bar button shows the moon.
+  Cycle from the status bar, return to Settings, and confirm the marked option followed.
+- **PASS/FAIL:** PASS if the two stay in step in both directions.

@@ -26,22 +26,24 @@ enum class MfdControl(
 ) {
     HOME(MfdKey.HOME, "Home", MfdIcons.Home, "Go to the display's home page"),
     MENU(MfdKey.MENU, "Menu", MfdIcons.Menu, "Open the display's menu"),
+    BACK(MfdKey.BACK, "Back", MfdIcons.Back, "Go back in the display's menu"),
     ZOOM_IN(MfdKey.RANGE_IN, "Zoom in", MfdIcons.ZoomIn, "Zoom the chart in (decrease range)"),
     ZOOM_OUT(MfdKey.RANGE_OUT, "Zoom out", MfdIcons.ZoomOut, "Zoom the chart out (increase range)"),
-    BACK(MfdKey.BACK, "Back", MfdIcons.Back, "Go back in the display's menu"),
     PANE(MfdKey.SWITCH, "Pane", MfdIcons.SwapPane, "Switch the display's active pane"),
     WAYPOINT(MfdKey.WPT, "Waypoint", MfdIcons.Waypoint, "Place a waypoint"),
     ;
 
     companion object {
         /**
-         * The named keys in the order both modes present them, most-reached-for first.
+         * The named keys in the order both modes present them.
          *
-         * This is [entries], not a second hand-written list. It used to be one, and it had already
-         * drifted: the enum read Home, Menu, Back, Zoom in… while the list read Home, Menu, Zoom
-         * in, Zoom out, Back… — so the type whose entire stated purpose is that the two modes
-         * cannot disagree was itself carrying two orderings. Declaration order is the ordering, and
-         * there is nowhere left for a second one to live.
+         * This is [entries], not a second hand-written list. It used to be one, and the two had
+         * already drifted apart — so the type whose entire stated purpose is that the modes cannot
+         * disagree was itself carrying two orderings. Declaration order is the ordering.
+         *
+         * Note this is *reading* order, not a layout. The side panel arranges these around the
+         * dial and gives Back a row of its own; see `PanelLayout`, which is checked against this
+         * list so the arrangement can never quietly drop or duplicate a control.
          */
         val panelOrder: List<MfdControl> get() = entries
     }

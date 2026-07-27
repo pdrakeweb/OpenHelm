@@ -321,9 +321,13 @@ class MainViewModel @Inject constructor(
      * be holding a wheel. Three taps returns to where it started, so there is nothing to undo.
      */
     fun cyclePalette(from: HelmPalette) {
-        val next = HelmPalette.entries[(from.ordinal + 1) % HelmPalette.entries.size]
-        palette = next
-        viewModelScope.launch { store.savePalette(next.name) }
+        selectPalette(HelmPalette.entries[(from.ordinal + 1) % HelmPalette.entries.size])
+    }
+
+    /** Choose a palette outright — what the named options in Settings do. */
+    fun selectPalette(choice: HelmPalette) {
+        palette = choice
+        viewModelScope.launch { store.savePalette(choice.name) }
     }
 
     fun selectTransport(choice: RtpTransport) {

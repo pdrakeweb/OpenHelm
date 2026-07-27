@@ -47,32 +47,91 @@ fun SidePanel(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(metrics.gap, Alignment.CenterVertically),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // The named keys, two across, in the canonical order shared with the keypad.
-            MfdControl.panelOrder.chunked(2).forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(metrics.gap)) {
-                    row.forEach { control ->
-                        ControlKey(
-                            control = control,
-                            onDown = { viewModel.keyDown(control.key) },
-                            onUp = { viewModel.keyUp(control.key) },
-                            size = metrics.keyHeight,
-                            width = metrics.keyWidth,
-                            showLabel = metrics.showLabels,
-                        )
+            PanelLayout.forEach { row ->
+                when (row) {
+                    is PanelRow.Keys -> Row(horizontalArrangement = Arrangement.spacedBy(metrics.gap)) {
+                        row.controls.forEach { control ->
+                            ControlKey(
+                                control = control,
+                                onDown = { viewModel.keyDown(control.key) },
+                                onUp = { viewModel.keyUp(control.key) },
+                                size = metrics.keyHeight,
+                                width = metrics.keyWidth,
+                                showLabel = metrics.showLabels,
+                            )
+                        }
+                        if (row.controls.size == 1) Box(Modifier.width(metrics.keyWidth))
                     }
-                    if (row.size == 1) Box(Modifier.width(metrics.keyWidth))
+
+                    is PanelRow.WideKey -> ControlKey(
+                        control = row.control,
+                        onDown = { viewModel.keyDown(row.control.key) },
+                        onUp = { viewModel.keyUp(row.control.key) },
+                        size = metrics.keyHeight,
+                        // Spans the pair above and below it, gap included.
+                        width = metrics.keyWidth * 2 + metrics.gap,
+                        showLabel = metrics.showLabels,
+                    )
+
+                    PanelRow.DialRow -> Dial(
+                        onKeyDown = viewModel::keyDown,
+                        onKeyUp = viewModel::keyUp,
+                        onRotate = viewModel::zoomStep,
+                        size = metrics.dialSize,
+                    )
                 }
             }
-
-            Dial(
-                onKeyDown = viewModel::keyDown,
-                onKeyUp = viewModel::keyUp,
-                onRotate = viewModel::zoomStep,
-                size = metrics.dialSize,
-            )
         }
     }
 }
+
+/** One band of the panel. */
+private sealed interface PanelRow {
+    /** One or two keys side by side. */
+    data class Keys(val controls: List<MfdControl>) : PanelRow
+
+    /** A single key spanning the full panel width. */
+    data class WideKey(val control: MfdControl) : PanelRow
+
+    /** The rotary dial. */
+    data object DialRow : PanelRow
+}
+
+/**
+ * Where each control sits, top to bottom.
+ *
+ * This is a **spatial arrangement, not a sorted list**, which is why it is written out rather than
+ * derived by chunking [MfdControl.panelOrder] into pairs. Chunking put the dial at the bottom and
+ * the keys in whatever pairs fell out of the enum order; the result read as a list of buttons
+ * rather than as a control panel, and Back — reached for constantly while walking a menu — ended up
+ * buried in the middle of a pair.
+ *
+ * The order here is the one asked for at the helm: the two navigation keys at the top, the dial
+ * directly under the thumb in the middle where the hand rests, Back given a full-width row of its
+ * own immediately below it so it is the easiest thing to hit without looking, then zoom, then the
+ * rest.
+ *
+ * Every control appears exactly once — checked by `PanelLayoutTest` against [MfdControl.panelOrder],
+ * so adding a control to the enum and forgetting it here fails the build rather than silently
+ * removing a key from the panel.
+ */
+private val PanelLayout: List<PanelRow> = listOf(
+    PanelRow.Keys(listOf(MfdControl.HOME, MfdControl.MENU)),
+    PanelRow.DialRow,
+    PanelRow.WideKey(MfdControl.BACK),
+    PanelRow.Keys(listOf(MfdControl.ZOOM_IN, MfdControl.ZOOM_OUT)),
+    PanelRow.Keys(listOf(MfdControl.PANE, MfdControl.WAYPOINT)),
+)
+
+/** The controls the panel actually places, in visual order. Exposed for the layout test. */
+internal val panelLayoutControls: List<MfdControl>
+    get() = PanelLayout.flatMap { row ->
+        when (row) {
+            is PanelRow.Keys -> row.controls
+            is PanelRow.WideKey -> listOf(row.control)
+            PanelRow.DialRow -> emptyList()
+        }
+    }
 
 /** The size band this panel will use, derived from the height it was actually handed. */
 private data class PanelMetrics(

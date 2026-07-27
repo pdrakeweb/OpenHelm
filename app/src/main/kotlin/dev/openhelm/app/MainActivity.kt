@@ -63,6 +63,6 @@ private fun AppRoot(viewModel: MainViewModel, palette: HelmPalette) {
     when (viewModel.route) {
         Route.CONNECT -> ConnectScreen(viewModel)
         Route.MANUAL -> ManualConnectScreen(viewModel)
-        Route.SETTINGS -> SettingsScreen(viewModel)
+        Route.SETTINGS -> SettingsScreen(viewModel, palette)
     }
 }
