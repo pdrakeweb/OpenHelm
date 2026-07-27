@@ -171,6 +171,17 @@ internal data class PanelMetrics(
 internal val StatusBarHeight: Dp = MinHelmTarget + 8.dp
 
 /**
+ * Dead space held at the left and right edges of the side-by-side layout.
+ *
+ * Phone screens are rounded, and the panel runs the full height, which puts its outermost keys hard
+ * against the corners where the glass curves away — the corner of a key was being clipped. This is a
+ * flat margin rather than a radius read from the platform: `RoundedCorner` only exists from API 31,
+ * the intrusion varies down the edge rather than being constant, and a fixed inset that clears the
+ * common case is worth more than an exact number that half the supported devices cannot supply.
+ */
+internal val HelmEdgeInset: Dp = 14.dp
+
+/**
  * Pick a size band from the available height.
  *
  * Three bands rather than a continuous scale, so the layout is predictable and testable.

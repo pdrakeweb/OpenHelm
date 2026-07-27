@@ -48,3 +48,20 @@ enum class MfdControl(
         val panelOrder: List<MfdControl> get() = entries
     }
 }
+
+/**
+ * A human name for any key, including the four directions and OK, which have no [MfdControl] entry
+ * because they live on the dial rather than on a named key.
+ *
+ * Used by the simulation action field, where the point is to name what was pressed rather than to
+ * label a control.
+ */
+internal fun MfdKey.actionLabel(): String =
+    MfdControl.entries.firstOrNull { it.key == this }?.label ?: when (this) {
+        MfdKey.UP -> "Cursor up"
+        MfdKey.DOWN -> "Cursor down"
+        MfdKey.LEFT -> "Cursor left"
+        MfdKey.RIGHT -> "Cursor right"
+        MfdKey.OK -> "OK"
+        else -> name
+    }

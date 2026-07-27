@@ -65,7 +65,7 @@ fun RemoteScreen(viewModel: MainViewModel, state: ConnectionState, palette: Helm
     // full-width bar: the panel's size band is chosen from the height it is handed, so the ~64dp
     // the bar used to take off the top was coming straight out of every key and the dial.
     if (viewModel.mirroring) {
-        Row(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxSize().padding(horizontal = HelmEdgeInset)) {
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 RemoteStatusBar(
                     viewModel = viewModel,

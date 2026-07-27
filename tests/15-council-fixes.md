@@ -21,6 +21,9 @@ carried a comment saying a pinch must never leak, while doing exactly that.
 
 - **SETUP:** Connected with video, and a way to watch what is sent. Either run against the
   simulator with its packet log, or `adb logcat` if a trace build is in use.
+- **NOTE:** The simulated pane runs this same gesture code (`videoTouchGestures`), so the shape of
+  the behaviour can be checked there without a display — see 15.25. What cannot be checked there is
+  what reaches the wire, which is what this test is for.
 - **STEPS:** Pinch-zoom the video pane a dozen times, from different starting points, at both slow
   and fast finger-landing intervals.
 - **EXPECTED:** **No** touch opcode (opcode 3) is transmitted for any of them. The local view
@@ -389,3 +392,54 @@ on, so any feedback drawn under it is feedback nobody sees.
 - **PASS/FAIL:** PASS if a press is clearly felt and the setting is still respected. If it is still
   too light on real hardware, the next step is an explicit `VibrationEffect` amplitude, which does
   need the permission.
+
+---
+
+### 15.23 The surround behind the picture follows the palette
+
+- **SETUP:** Mirror mode in each palette in turn.
+- **EXPECTED:** The letterbox bars around the 5:3 picture take the palette's page colour — white in
+  bright, navy in dark, near-black in night — rather than being black in all three. A black bar
+  beside a white interface reads as a fault rather than a margin, and in sun a black bar washes to
+  grey anyway, so the contrast it was there to provide is the first thing lost.
+- **PASS/FAIL:** PASS if the surround matches the page in all three.
+
+---
+
+### 15.24 The layout keeps clear of rounded corners
+
+- **SETUP:** Mirror mode, on a device with rounded corners, in landscape.
+- **EXPECTED:** A margin at the left and right edges. The panel runs the full height, which puts its
+  outermost keys where the glass curves away, and their corners were being clipped.
+- **NOTE:** A flat inset, not a radius read from the platform. `RoundedCorner` only exists from API
+  31, and the intrusion varies down the edge rather than being constant — a fixed margin that clears
+  the common case is worth more than an exact figure half the supported devices cannot supply. If a
+  key still clips on real hardware, the inset is one constant.
+- **PASS/FAIL:** PASS if no control is cut off at either edge.
+
+---
+
+### 15.25 Simulation shows what a gesture did
+
+Simulation's chart cannot react, so a tap, a drag and a pinch all produce the same visible result:
+nothing. That makes the whole mode unfalsifiable — a control that works and a control wired to
+nothing look identical.
+
+- **SETUP:** Simulation, Mirror mode.
+- **STEPS:** Tap the picture. Drag across it. Pinch it. Then press keys on the panel and turn the
+  dial.
+- **EXPECTED:**
+  - Fading ring marks appear where the fingers went — a single mark for a tap, a trail for a drag,
+    paired marks for a pinch. They grow as they fade, so a stationary tap still reads as an event.
+  - The marks sit in **screen** space, not chart space: they mark where the finger was on the glass
+    and do not move when the pinch zooms the chart under them.
+  - A pinch actually **zooms the chart**, as it zooms the picture in a real session.
+  - The **action field** at the top names what happened: `Zoom out`, `Cursor up`, `Waypoint`,
+    `Touch 43%, 58%`, `Drag 59%, 49%`, `Pinch zoom ×1.8`. Repeats collapse to a count — `Zoom out
+    ×2` — rather than scrolling.
+  - The field reads `Press anything — actions appear here` until something is pressed, and clears on
+    leaving simulation.
+- **ALSO:** None of this appears in a real session. There the display's own cursor is the feedback,
+  and drawing over live video would be decorating the one surface that has to stay trustworthy.
+- **PASS/FAIL:** PASS if every gesture and key press is named and marked. FAIL if any control
+  produces nothing at all, which is indistinguishable from being unwired.

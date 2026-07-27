@@ -1,6 +1,7 @@
 package dev.openhelm.app.ui
 
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
@@ -119,6 +120,28 @@ class MainViewModel @Inject constructor(
     var palette by mutableStateOf<HelmPalette?>(null)
         private set
 
+    /**
+     * The last thing the user did, for simulation's action field.
+     *
+     * Simulation shows a chart that cannot respond, so pressing a key produces no visible result
+     * anywhere — which makes it impossible to tell a working control from a dead one. Naming the
+     * action is the substitute for the display reacting.
+     *
+     * Only written while [simulationMode] is on; a real session has the display itself as the
+     * feedback and does not need a running commentary.
+     */
+    var simAction by mutableStateOf<String?>(null)
+        private set
+
+    /** How many times [simAction] has repeated without something else intervening. */
+    var simActionRepeats by mutableIntStateOf(0)
+        private set
+
+    fun noteSimAction(text: String) {
+        if (!simulationMode) return
+        if (text == simAction) simActionRepeats++ else { simAction = text; simActionRepeats = 1 }
+    }
+
     init {
         // Restored on launch. Unlike simulation mode this is deliberately sticky — see
         // EndpointStore.palette for why relaunching bright after dark is not acceptable.
@@ -182,6 +205,8 @@ class MainViewModel @Inject constructor(
 
     fun exitSimulation() {
         simulationMode = false
+        simAction = null
+        simActionRepeats = 0
     }
 
     /**
@@ -372,7 +397,10 @@ class MainViewModel @Inject constructor(
      * touch-up — the time in between belongs to the MFD's own auto-repeat, which is what makes
      * holding an arrow key sweep the cursor across the screen.
      */
-    fun keyDown(key: MfdKey) = sendButton(key, KeyAction.DOWN)
+    fun keyDown(key: MfdKey) {
+        noteSimAction(key.actionLabel())
+        sendButton(key, KeyAction.DOWN)
+    }
 
     fun keyUp(key: MfdKey) = sendButton(key, KeyAction.UP)
 
@@ -386,6 +414,7 @@ class MainViewModel @Inject constructor(
      * much its payload looks like coordinates. Positive steps zoom in, negative out.
      */
     fun zoomStep(step: Int, accumulated: Int) {
+        noteSimAction(if (step > 0) "Zoom in" else "Zoom out")
         val endpoint = currentEndpoint() ?: return
         rrc.send(Rrc.zoom(step, accumulated, endpoint.rrcVersion))
     }
