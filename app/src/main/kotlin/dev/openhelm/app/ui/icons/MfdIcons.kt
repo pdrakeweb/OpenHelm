@@ -324,6 +324,21 @@ object MfdIcons {
     }
 
     /**
+     * A four-key grid — the remote-only mode, where the controls take the whole screen.
+     *
+     * Paired with [VideoOn] in the mode switch: a picture versus a keypad, so the two options are
+     * distinguishable by shape alone before either word is read.
+     */
+    val Keypad: ImageVector by lazy {
+        icon("Keypad") {
+            path(fill = black) {
+                square(4f, 4f, 5f); square(13f, 4f, 5f)
+                square(4f, 13f, 5f); square(13f, 13f, 5f)
+            }
+        }
+    }
+
+    /**
      * The day palette: a sun with full rays. The brightest of the three glyphs, so the cycle's
      * position reads from the icon's weight alone before any label is looked at.
      */
@@ -393,6 +408,15 @@ object MfdIcons {
             moveTo(14.5f, 14.5f); lineTo(20f, 20f)
         }
     }
+}
+
+/** An axis-aligned square with its top-left at ([x], [y]). */
+private fun androidx.compose.ui.graphics.vector.PathBuilder.square(x: Float, y: Float, side: Float) {
+    moveTo(x, y)
+    lineTo(x + side, y)
+    lineTo(x + side, y + side)
+    lineTo(x, y + side)
+    close()
 }
 
 /** A circle, as two half-arcs — the portable way to express one in a vector path. */

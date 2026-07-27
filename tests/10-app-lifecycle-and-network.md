@@ -102,8 +102,8 @@ session.
   ```
 - **STEPS:** Leave the app untouched with video rendering for 40 seconds.
 - **EXPECTED:** The screen stays on while video is showing (this is a device mounted at a helm).
-  With video off, normal timeout behaviour resumes so battery still matters.
-- **VERIFY:** The display is still on after 40 s; after switching video off it sleeps normally.
+  The keep-awake belongs to the session, so it holds in Remote-only too; it is released on disconnect.
+- **VERIFY:** The display is still on after 40 s in **both** modes, and sleeps normally once disconnected.
 - **PASS/FAIL:** PASS if video keeps the screen awake and control-only does not. FAIL if the screen
   sleeps mid-video. Restore the timeout afterwards.
 

@@ -49,8 +49,9 @@ private object Navy {
 /**
  * Overcast, twilight, below decks — the conventional dark theme.
  *
- * Note how many `*Container` roles are set. Material's tonal buttons — every *Done*, *Back*,
- * *Video off* and *Exit simulation* in this app — take their colour from `secondaryContainer`, and
+ * Note how many `*Container` roles are set. Material's tonal buttons and segmented buttons —
+ * every *Done*, *Back*, *Exit simulation* and the Mirror/Remote switch — take their colour from
+ * `secondaryContainer`, and
  * the destructive variant from `errorContainer`. Leaving those unset does **not** derive them from
  * the palette: `darkColorScheme()` fills them from Material's baseline, which is purple. Every
  * screen therefore carried a row of lavender buttons that ignored the palette entirely, and in
@@ -127,7 +128,7 @@ private val NightColors = darkColorScheme(
     secondary = Color(0xFF8C4A3A),
     onSecondary = Color(0xFF1A0603),
     // The tonal-button pair. Barely above the surface, and red like everything else — this is what
-    // Done, Back, Video off and Exit simulation are drawn from.
+    // Done, Back, Exit simulation and the mode switch are drawn from.
     secondaryContainer = Color(0xFF26100B),
     onSecondaryContainer = Color(0xFFB4604C),
     tertiary = Color(0xFF8A5A2A),

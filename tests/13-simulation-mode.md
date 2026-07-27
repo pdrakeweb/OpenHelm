@@ -134,18 +134,19 @@ anywhere, including on a boat's real Wi-Fi without risk of confusing a real disp
 
 ---
 
-### 13.6 Video on/off and full-screen mode switch work the same as a real session
+### 13.6 The Mirror / Remote switch works the same as a real session
 
 - **SETUP:** 13.2, side-by-side.
 - **STEPS:**
   ```bash
-  tap_text "Video off"; sleep 1; "$ADB" exec-out screencap -p > 13_6_off.png
-  tap_text "Video on";  sleep 1; "$ADB" exec-out screencap -p > 13_6_on.png
-  tap_text "Video off"; sleep 1; "$ADB" exec-out screencap -p > 13_6_fullscreen.png
+  tap_text "Remote"; sleep 1; "$ADB" exec-out screencap -p > 13_6_off.png
+  tap_text "Mirror";  sleep 1; "$ADB" exec-out screencap -p > 13_6_on.png
+  tap_text "Remote"; sleep 1; "$ADB" exec-out screencap -p > 13_6_fullscreen.png
   ```
-- **EXPECTED:** "Video off" replaces the side-by-side view with the full-screen keypad (simulated
-  video pauses/disappears, not just hidden behind the panel); "Video on" restores it. The side
-  status bar's Video off button switches to full-screen, exactly mirroring the real remote screen's
+- **EXPECTED:** **Remote** replaces the side-by-side view with the full-screen keypad (simulated
+  video pauses/disappears, not just hidden behind the panel); **Mirror** restores it. Both
+  segments are visible at once with the current one marked, so neither has to be inferred from
+  a verb. The simulated status bar carries the same control as the real remote screen's
   behaviour ([08-touch-and-gestures.md](08-touch-and-gestures.md) 08.7).
 - **VERIFY:** The three screenshots show the three states correctly.
 - **PASS/FAIL:** PASS if mode switching matches the real session's behaviour. FAIL if either control

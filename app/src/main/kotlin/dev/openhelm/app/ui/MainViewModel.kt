@@ -97,8 +97,15 @@ class MainViewModel @Inject constructor(
     var manualText by mutableStateOf("")
         private set
 
-    /** Control-only mode is one toggle away — invaluable whenever video is the broken half. */
-    var videoEnabled by mutableStateOf(true)
+    /**
+     * True in **Mirror** — the display's picture beside the controls. False in **Remote only** —
+     * the full-screen keypad, with the video pipeline stopped.
+     *
+     * Remote only is a first-class mode, not a degraded one: it is the fallback whenever video is
+     * the broken half, and it is what you want anyway when the phone is a keypad on a bulkhead and
+     * the chart is being read off the display itself.
+     */
+    var mirroring by mutableStateOf(true)
         private set
 
     /** UDP for real displays; TCP interleaving exists only for the simulator behind emulator NAT. */
@@ -303,9 +310,11 @@ class MainViewModel @Inject constructor(
         rrc.disconnect()
     }
 
-    fun toggleVideo() {
-        videoEnabled = !videoEnabled
-        if (!videoEnabled) player.stop()
+    /** Switch between mirroring the display and remote-only. */
+    fun selectMirroring(on: Boolean) {
+        if (on == mirroring) return
+        mirroring = on
+        if (!mirroring) player.stop()
         // When re-enabled, the surface re-enters composition and onVideoSurfaceReady restarts it.
     }
 
@@ -339,7 +348,7 @@ class MainViewModel @Inject constructor(
 
     fun onVideoSurfaceReady(surface: Surface) {
         val endpoint = currentEndpoint() ?: return
-        if (videoEnabled) player.start(endpoint.rtspUrl, surface, transport)
+        if (mirroring) player.start(endpoint.rtspUrl, surface, transport)
     }
 
     fun onVideoSurfaceDestroyed() {

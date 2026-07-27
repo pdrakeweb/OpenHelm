@@ -126,7 +126,7 @@ The two session flags are deliberately opposite, and it is worth checking they h
 
 ### 15.8 The screen stays awake in keypad mode, not only with video
 
-- **SETUP:** Connected. Turn **Video off** so the full-screen keypad is showing.
+- **SETUP:** Connected, switched to **Remote** so the full-screen keypad is showing.
 - **EXPECTED:** The screen does not blank. The keep-awake belongs to the session, not to the video
   pane — it used to be a flag on the `TextureView`, so the screen slept the moment the user
   switched to the keypad, which is precisely when a mounted phone gets no touches of its own.
@@ -150,7 +150,7 @@ present in the layout, invisible to the user, and still counted as laid out.
   ```bash
   "$ADB" shell wm size 2340x1080 && "$ADB" shell wm density 420   # ≈891 × 411dp
   ```
-  Connected or simulating, **Video off**.
+  Connected or simulating, switched to **Remote**.
 - **EXPECTED:** Every key of both clusters is fully visible. The keys have shrunk to fit rather
   than being cropped, and no key is below 56dp. Where even the minimum cannot fit, the keypad
   scrolls.
@@ -248,7 +248,7 @@ cd openhelm && ./gradlew :app:testDebugUnitTest
 ### 15.15 Every palette colours its own buttons
 
 The original defect: none of the three schemes defined `secondaryContainer`, so Material filled it
-from its **baseline purple**. *Done*, *Back*, *Video off* and *Exit simulation* were lavender in
+from its **baseline purple**. *Done*, *Back*, the mode switch and *Exit simulation* were lavender in
 every palette — including night, where a bright non-red button is exactly what the mode exists to
 remove.
 
@@ -269,3 +269,29 @@ remove.
 - **VERIFY:** Choose Night in Settings, leave, and confirm the status-bar button shows the moon.
   Cycle from the status bar, return to Settings, and confirm the marked option followed.
 - **PASS/FAIL:** PASS if the two stay in step in both directions.
+
+---
+
+### 15.17 The two ways of using the remote are both named
+
+The original defect: a single button labelled *Video off* / *Video on*. A one-word toggle whose
+label changes has to be read twice — "Video off" is equally readable as *the video is off* and as
+*tap to turn the video off*, and the two readings are opposites. No wording fixes it, because the
+problem is the control rather than the copy. It also framed one of two legitimate modes as a
+feature being switched off.
+
+- **SETUP:** Connected, or in simulation.
+- **EXPECTED:** A two-segment control showing **Mirror** and **Remote** at the same time, with the
+  current one marked. Mirror puts the display's picture beside the controls; Remote gives the
+  full-screen keypad and stops the video pipeline. Neither is presented as a degraded mode.
+- **VERIFY:**
+  ```bash
+  "$ADB" exec-out uiautomator dump /sdcard/u.xml >/dev/null
+  "$ADB" exec-out cat /sdcard/u.xml | tr '<' '
+' | grep -oE 'content-desc="(Mirror|Remote only)[^"]*"|bounds="[^"]*"'
+  ```
+  Both segments must be present, each ≥56dp tall — Material's own segmented buttons default to
+  40dp, under even the platform minimum.
+- **ALSO:** Back from Remote returns to Mirror before it offers to disconnect, as it always did.
+- **PASS/FAIL:** PASS if both modes are visible and named at once. FAIL if the control still
+  requires inferring the current state from a verb.

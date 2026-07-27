@@ -122,7 +122,7 @@ The original defect: the side panel said `Rng −`/`Rng +`, `Swch`; the keypad s
 `Pane`; and Home/Menu swapped order between them.
 
 - **SETUP:** Connected or simulating.
-- **STEPS:** Screenshot side-by-side mode, then Video off for the full-screen keypad, and compare.
+- **STEPS:** Screenshot Mirror mode, then switch to Remote for the full-screen keypad, and compare.
 - **EXPECTED:** Identical icons and identical order in both, sourced from a single `MfdControl`
   table whose declaration order *is* the order. The range keys read **Zoom in** / **Zoom out**
   (what they do), not `Rng ±`. Every key carries an icon.
@@ -140,7 +140,7 @@ The original defect: the side panel said `Rng −`/`Rng +`, `Swch`; the keypad s
 ### 14.7 Screen actions are buttons, not bare text links
 
 - **SETUP:** Visit the remote screen, Manual connect, and Settings.
-- **EXPECTED:** *Video off*, *Disconnect*, *Back*, *Done*, *Exit simulation* are all real buttons —
+- **EXPECTED:** *Mirror/Remote*, *Disconnect*, *Back*, *Done*, *Exit simulation* are all real controls —
   with an icon, a visible container, and a ≥56dp hit area — not bare text.
 - **VERIFY:** Each is visibly a button in a screenshot; each measures ≥56dp tall in a UI dump.
 - **PASS/FAIL:** PASS if none of the listed actions is a bare text link.

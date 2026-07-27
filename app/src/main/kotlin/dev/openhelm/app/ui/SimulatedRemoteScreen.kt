@@ -45,8 +45,8 @@ import kotlin.math.sin
  * Reuses [SidePanel] and [Keypad] as-is — they already drive through [MainViewModel.keyDown] /
  * [MainViewModel.keyUp], which safely do nothing while there is no real connection ([currentEndpoint]
  * is null), so the controls are genuinely tappable with real press/release feedback and simply have
- * nowhere to send. The video-on/off toggle is the same [MainViewModel.videoEnabled] flag the real
- * screen uses, so side-by-side and full-screen behave identically to the real thing.
+ * nowhere to send. The Mirror/Remote switch drives the same [MainViewModel.mirroring] flag the
+ * real screen uses, so both modes behave identically to the real thing.
  */
 @Composable
 fun SimulatedRemoteScreen(viewModel: MainViewModel, palette: HelmPalette) {
@@ -58,12 +58,12 @@ fun SimulatedRemoteScreen(viewModel: MainViewModel, palette: HelmPalette) {
 
     // Same shape as RemoteScreen's Back handling: leave full-screen before leaving simulation.
     BackHandler {
-        if (!viewModel.videoEnabled) viewModel.toggleVideo() else viewModel.exitSimulation()
+        if (!viewModel.mirroring) viewModel.selectMirroring(true) else viewModel.exitSimulation()
     }
 
     Column(Modifier.fillMaxSize()) {
         SimulationStatusBar(viewModel, palette)
-        if (viewModel.videoEnabled) {
+        if (viewModel.mirroring) {
             Row(Modifier.weight(1f).fillMaxWidth()) {
                 SimulatedVideoPane(palette, Modifier.weight(1f).fillMaxHeight())
                 SidePanel(viewModel)
@@ -93,10 +93,9 @@ private fun SimulationStatusBar(viewModel: MainViewModel, palette: HelmPalette) 
         // preview if the controls it shows are the ones that ship.
         PaletteButton(palette = palette, onCycle = { viewModel.cyclePalette(palette) })
         Spacer(Modifier.width(8.dp))
-        NavActionButton(
-            icon = if (viewModel.videoEnabled) MfdIcons.VideoOff else MfdIcons.VideoOn,
-            label = if (viewModel.videoEnabled) "Video off" else "Video on",
-            onClick = viewModel::toggleVideo,
+        MirrorModeSwitch(
+            mirroring = viewModel.mirroring,
+            onSelect = viewModel::selectMirroring,
         )
         Spacer(Modifier.width(8.dp))
         NavActionButton(

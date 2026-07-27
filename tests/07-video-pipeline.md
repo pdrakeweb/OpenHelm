@@ -121,8 +121,8 @@ Those differ by seconds, and a spinner that lies about being finished is worse t
 - **SETUP:** Connected with video on.
 - **STEPS:**
   ```bash
-  tap_text "Video off"; sleep 2; "$ADB" exec-out screencap -p > 07_8_off.png
-  tap_text "Video on";  sleep 8; "$ADB" exec-out screencap -p > 07_8_on.png
+  tap_text "Remote"; sleep 2; "$ADB" exec-out screencap -p > 07_8_off.png
+  tap_text "Mirror";  sleep 8; "$ADB" exec-out screencap -p > 07_8_on.png
   ```
 - **EXPECTED:** Video stops and the pipeline is torn down (no decoder left running); the keypad
   takes the screen. Turning it back on re-establishes RTSP and renders again.

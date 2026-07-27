@@ -126,8 +126,8 @@ Opcode 3 payload: `[action][seq][x_lo][x_hi][y_lo][y_hi]`, action 1 down / 2 up 
 - **SETUP:** Connected, side-by-side view.
 - **STEPS:**
   ```bash
-  tap_text "Video off"; sleep 2; "$ADB" exec-out screencap -p > 08_7_full.png
-  tap_text "Video on";    sleep 6; "$ADB" exec-out screencap -p > 08_7_back.png
+  tap_text "Remote"; sleep 2; "$ADB" exec-out screencap -p > 08_7_full.png
+  tap_text "Mirror";    sleep 6; "$ADB" exec-out screencap -p > 08_7_back.png
   ```
 - **EXPECTED:** The first tap gives a full-screen keypad with no video. The second returns to
   side-by-side and video resumes. Both directions work by button.
@@ -157,7 +157,7 @@ Opcode 3 payload: `[action][seq][x_lo][x_hi][y_lo][y_hi]`, action 1 down / 2 up 
 
 ### 08.9 Touch is not sent when video is off
 
-- **SETUP:** Control-only mode (video off).
+- **SETUP:** Remote-only mode.
 - **STEPS:** Tap where the video pane used to be; check the log.
 - **EXPECTED:** No touch frames — there is no video area to normalise against. Keypad presses still
   work normally.

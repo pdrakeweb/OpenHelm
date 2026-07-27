@@ -176,14 +176,14 @@ on any write error. The rewrite drops the frame and lets one supervised loop rec
 
 ---
 
-### 06.8 Control works with video off
+### 06.8 Control works in Remote-only mode
 
 Control-only mode is a first-class mode: it is the fallback whenever video is the broken half.
 
 - **SETUP:** Connected.
 - **STEPS:**
   ```bash
-  tap_text "Video off"
+  tap_text "Remote"
   sleep 2
   "$ADB" exec-out screencap -p > 06_8_controlonly.png
   "$ADB" logcat -c; tap_text "Menu"; sleep 1; tail -3 emulator/emu.log

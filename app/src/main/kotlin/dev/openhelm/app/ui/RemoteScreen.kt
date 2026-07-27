@@ -55,7 +55,7 @@ fun RemoteScreen(viewModel: MainViewModel, state: ConnectionState, palette: Helm
     // Back walks the modes before it tears anything down: full-screen remote → side-by-side →
     // confirm disconnect. Nothing here drops the session by surprise.
     BackHandler {
-        if (!viewModel.videoEnabled) viewModel.toggleVideo() else confirmDisconnect = true
+        if (!viewModel.mirroring) viewModel.selectMirroring(true) else confirmDisconnect = true
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -65,7 +65,7 @@ fun RemoteScreen(viewModel: MainViewModel, state: ConnectionState, palette: Helm
             palette = palette,
             onDisconnectRequest = { confirmDisconnect = true },
         )
-        if (viewModel.videoEnabled) {
+        if (viewModel.mirroring) {
             Row(
                 Modifier
                     .weight(1f)
@@ -135,10 +135,9 @@ private fun RemoteStatusBar(
         // to land on the button that ends the session.
         PaletteButton(palette = palette, onCycle = { viewModel.cyclePalette(palette) })
 
-        HelmActionButton(
-            icon = if (viewModel.videoEnabled) MfdIcons.VideoOff else MfdIcons.VideoOn,
-            label = if (viewModel.videoEnabled) "Video off" else "Video on",
-            onClick = viewModel::toggleVideo,
+        MirrorModeSwitch(
+            mirroring = viewModel.mirroring,
+            onSelect = viewModel::selectMirroring,
         )
         HelmActionButton(
             icon = MfdIcons.Disconnect,
@@ -167,7 +166,7 @@ private fun ConnectionStatusText(
         is ConnectionState.Connected -> {
             // "Connected" beside a pane that is still a spinner is a mixed signal. Control and
             // video come up independently, so the line says which of the two is actually live.
-            val videoPending = viewModel.videoEnabled &&
+            val videoPending = viewModel.mirroring &&
                 (videoState is VideoState.Connecting || videoState is VideoState.Idle)
             if (videoPending) {
                 "Controls ready · starting video…" to MaterialTheme.colorScheme.onSurfaceVariant
