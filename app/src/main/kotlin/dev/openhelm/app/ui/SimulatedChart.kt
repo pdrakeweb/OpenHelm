@@ -1,7 +1,7 @@
 package dev.openhelm.app.ui
 
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -23,10 +23,10 @@ import kotlin.math.sin
  *
  * **Nothing here is copied from a display.** The reference photographs of a real MFD were used the
  * same way the protocol documentation was: to establish *facts about the layout* — that there is a
- * data bar across the top, a chart occupying the bulk of the screen, and a menu column down one
- * side, in roughly these proportions — after which every pixel is generated. The coastline is a sum
- * of sines, the soundings are arithmetic, the menu wording is this project's own, and there is no
- * vendor branding, iconography or cartography anywhere in it. See CLEAN-ROOM.md; a screenshot of a
+ * data bar across the top carrying a few numeric fields and a way into the menu, with the chart
+ * filling everything below it — after which every pixel is generated. The coastline is a sum of
+ * sines, the soundings are arithmetic, the place names are invented, and there is no vendor
+ * branding, iconography or cartography anywhere in it. See CLEAN-ROOM.md; a screenshot of a
  * display, and the licensed chart data inside it, could not be shipped in this repository.
  *
  * It replaces a set of colour bars. Bars proved the pipeline drew *something*, but they made
@@ -47,11 +47,23 @@ internal fun DrawScope.drawSimulatedChart(measurer: TextMeasurer, frame: Int) {
 
     drawChartBase(u, ::x, ::y, measurer, t)
     drawDataBar(::x, ::y, u, measurer, t)
-    drawMenuColumn(::x, ::y, u, measurer)
     drawCursor(::x, ::y, u)
 }
 
 // ---- chart ---------------------------------------------------------------------------------
+
+/**
+ * The coastline: a sum of three sines, so it wanders like a shore without being anywhere real.
+ *
+ * Top-level rather than local to the drawing, because the soundings and navigation marks have to be
+ * checked against it. Hand-placed points drifted onto the land when the chart widened, and a
+ * sounding printed on a beach is the sort of detail that makes a chart read as fake immediately.
+ */
+private fun shore(px: Float): Float =
+    300f + sin(px / 118f) * 34f + sin(px / 47f + 1.7f) * 13f + sin(px / 23f + 0.4f) * 5f
+
+/** True where a point is far enough seaward of [shore] to carry a sounding or a mark. */
+private fun inWater(px: Float, py: Float): Boolean = py < shore(px) - 8f
 
 /** IHO chart conventions: pale open water, cyan shoal, buff land. Universal, not anyone's house style. */
 private val DeepWater = Color(0xFFF2F4F3)
@@ -70,14 +82,6 @@ private fun DrawScope.drawChartBase(
     t: Float,
 ) {
     drawRect(DeepWater)
-
-    // The coastline: a sum of three sines, so it wanders like a shore without being anything real.
-    fun shore(px: Float): Float {
-        val a = sin(px / 118f) * 34f
-        val b = sin(px / 47f + 1.7f) * 13f
-        val c = sin(px / 23f + 0.4f) * 5f
-        return 300f + a + b + c
-    }
 
     fun band(offset: Float): Path = Path().apply {
         moveTo(x(0f), y(shore(0f) + offset))
@@ -125,13 +129,13 @@ private fun DrawScope.drawChartBase(
 
     // Spot soundings: fixed positions, so the chart does not shimmer between frames.
     val soundingStyle = TextStyle(color = ChartInk, fontSize = 8.sp, fontFamily = FontFamily.SansSerif)
-    SOUNDINGS.forEach { (sx, sy, depth) ->
+    SOUNDINGS.filter { (sx, sy, _) -> inWater(sx, sy) }.forEach { (sx, sy, depth) ->
         val line = measurer.measure("$depth", soundingStyle)
         drawText(line, topLeft = Offset(x(sx), y(sy)))
     }
 
     // Navigation marks along the channel.
-    MARKS.forEach { (mx, my) ->
+    MARKS.filter { (mx, my) -> inWater(mx, my) }.forEach { (mx, my) ->
         drawCircle(Color(0xFF2E7D32), radius = 3f * u, center = Offset(x(mx), y(my)))
         drawLine(
             ChartInk,
@@ -201,7 +205,7 @@ private fun DrawScope.drawChartBase(
     val scaleLine = measurer.measure("2 nm", scaleStyle)
     drawText(scaleLine, topLeft = Offset(barRight + x(10f), barY - scaleLine.size.height / 2f))
     val northLine = measurer.measure("North-Up", scaleStyle)
-    drawText(northLine, topLeft = Offset(x(300f), barY - northLine.size.height / 2f))
+    drawText(northLine, topLeft = Offset(x(400f) - northLine.size.width / 2f, barY - northLine.size.height / 2f))
 }
 
 // ---- data bar ------------------------------------------------------------------------------
@@ -246,67 +250,70 @@ private fun DrawScope.drawDataBar(
         drawText(v, topLeft = Offset(cx, y(17f)))
         cx += maxOf(v.size.width.toFloat(), x(72f)) + x(24f)
     }
+
+    drawMenuButton(x, y, u, measurer)
 }
 
-// ---- menu column ---------------------------------------------------------------------------
-
-private fun DrawScope.drawMenuColumn(
+/**
+ * The menu, closed.
+ *
+ * The scene used to draw the menu open down the right-hand third of the screen. That is a state the
+ * display spends very little time in, and it cost a third of the chart permanently — which is the
+ * part of the picture the panel and the palettes actually have to be judged against. A closed button
+ * says the menu exists without standing in front of the thing it opens over.
+ */
+private fun DrawScope.drawMenuButton(
     x: (Float) -> Float,
     y: (Float) -> Float,
     u: Float,
     measurer: TextMeasurer,
 ) {
-    val left = x(560f)
-    val top = y(44f)
-    drawRect(
-        Color(0xFF14202B),
+    val right = x(786f)
+    val left = x(694f)
+    val top = y(7f)
+    val bottom = y(37f)
+
+    drawRoundRect(
+        color = Color(0xFF2C3E50),
         topLeft = Offset(left, top),
-        size = Size(size.width - left, size.height - top),
+        size = Size(right - left, bottom - top),
+        cornerRadius = CornerRadius(4f * u, 4f * u),
     )
-    drawLine(Color(0xFF3E5265), Offset(left, top), Offset(left, size.height), strokeWidth = 1f * u)
+    drawRoundRect(
+        color = Color(0xFF5B7A94),
+        topLeft = Offset(left, top),
+        size = Size(right - left, bottom - top),
+        cornerRadius = CornerRadius(4f * u, 4f * u),
+        style = Stroke(width = 1f * u),
+    )
 
-    val titleStyle = TextStyle(color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-    drawText(measurer.measure("Chart", titleStyle), topLeft = Offset(left + x(20f), top + y(14f)))
-
-    val itemStyle = TextStyle(color = Color(0xFFCFD8DC), fontSize = 12.sp)
-    val activeStyle = TextStyle(color = Color(0xFFFFB300), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-
-    MENU.forEachIndexed { i, item ->
-        val iy = top + y(56f + i * 46f)
-        if (i == 0) {
-            drawRect(
-                Color(0x22FFB300),
-                topLeft = Offset(left, iy - y(12f)),
-                size = Size(size.width - left, y(40f)),
-            )
-            drawLine(
-                Color(0xFFFFB300),
-                Offset(left, iy - y(12f)),
-                Offset(left, iy + y(28f)),
-                strokeWidth = 3f * u,
-            )
-        }
-        drawText(
-            measurer.measure(item, if (i == 0) activeStyle else itemStyle),
-            topLeft = Offset(left + x(20f), iy),
+    // Three bars, then the word.
+    val barX = left + x(11f)
+    val barW = x(15f)
+    repeat(3) { i ->
+        val by = top + (bottom - top) / 2f + (i - 1) * 6f * u
+        drawLine(
+            Color(0xFFE3EAF0),
+            Offset(barX, by),
+            Offset(barX + barW, by),
+            strokeWidth = 2f * u,
         )
-        // Chevron.
-        val cxr = size.width - x(24f)
-        val cyr = iy + y(8f)
-        val chev = Path().apply {
-            moveTo(cxr - x(5f), cyr - y(7f))
-            lineTo(cxr + x(2f), cyr)
-            lineTo(cxr - x(5f), cyr + y(7f))
-        }
-        drawPath(chev, if (i == 0) Color(0xFFFFB300) else Color(0xFF90A4AE), style = Stroke(width = 1.8f * u))
     }
+    val label = measurer.measure(
+        "Menu",
+        TextStyle(color = Color(0xFFE3EAF0), fontSize = 12.sp, fontWeight = FontWeight.Medium),
+    )
+    drawText(
+        label,
+        topLeft = Offset(barX + barW + x(9f), (top + bottom) / 2f - label.size.height / 2f),
+    )
 }
 
 // ---- cursor --------------------------------------------------------------------------------
 
 /** The chart cursor the arrow keys and the dial move. Outlined so it survives any chart tone under it. */
 private fun DrawScope.drawCursor(x: (Float) -> Float, y: (Float) -> Float, u: Float) {
-    val c = Offset(x(300f), y(268f))
+    val c = Offset(x(400f), y(268f))
     val arm = 15f * u
     listOf(Color.Black to 3.6f * u, Color.White to 1.8f * u).forEach { (color, w) ->
         drawLine(color, Offset(c.x - arm, c.y), Offset(c.x + arm, c.y), strokeWidth = w)
@@ -329,15 +336,19 @@ private val SOUNDINGS = listOf(
     Triple(60f, 120f, 31), Triple(140f, 96f, 27), Triple(232f, 132f, 24), Triple(316f, 104f, 29),
     Triple(404f, 140f, 22), Triple(470f, 108f, 26), Triple(96f, 190f, 18), Triple(190f, 214f, 15),
     Triple(286f, 186f, 19), Triple(372f, 226f, 12), Triple(452f, 196f, 16), Triple(508f, 240f, 9),
-    Triple(150f, 268f, 11), Triple(250f, 300f, 7), Triple(340f, 288f, 8), Triple(430f, 320f, 5),
+    Triple(150f, 268f, 11), Triple(250f, 300f, 7), Triple(340f, 288f, 8), Triple(430f, 262f, 13),
+    Triple(556f, 128f, 28), Triple(624f, 96f, 33), Triple(700f, 136f, 25), Triple(762f, 104f, 30),
+    Triple(578f, 206f, 17), Triple(660f, 232f, 14), Triple(742f, 198f, 20), Triple(706f, 250f, 12),
+    Triple(596f, 246f, 11), Triple(772f, 268f, 10),
 )
 
 private val MARKS = listOf(
-    124f to 236f, 268f to 262f, 396f to 250f, 486f to 292f,
+    124f to 236f, 268f to 262f, 396f to 250f, 486f to 250f,
+    600f to 262f, 690f to 244f, 758f to 262f,
 )
 
 private val ROUTE = listOf(
-    72f to 168f, 196f to 208f, 322f to 190f, 448f to 236f, 528f to 208f,
+    72f to 168f, 196f to 208f, 322f to 190f, 448f to 236f, 552f to 204f, 664f to 246f, 764f to 214f,
 )
 
 private val PLACES = listOf(
@@ -345,6 +356,7 @@ private val PLACES = listOf(
     Triple(214f, 352f, "COLD HARBOUR"),
     Triple(392f, 372f, "STONE POINT"),
     Triple(452f, 88f, "OUTER BANK"),
+    Triple(612f, 356f, "EAST SANDS"),
+    Triple(704f, 168f, "THE ROADS"),
 )
 
-private val MENU = listOf("Go to", "Targets", "Layers", "Waypoints", "Measure")
