@@ -359,7 +359,8 @@ on, so any feedback drawn under it is feedback nobody sees.
   - The ring lights to the pressed colour on contact, and **two sections go dark directly opposite
     the thumb**, with a bold marker tick between them — before anything has turned. Opposite, not
     under: the detent nearest the finger is the one place on the ring guaranteed to be covered by
-    the hand using it. Two sections rather than one because a thumb spans more than one 20° section.
+    the hand using it. Two sections rather than one because a thumb spans more than one detent's
+    section. The ring has 15 detents, at 24° each.
   - Turning carries that mark round at the same rate and in the same direction as the finger, half
     a turn away, and the sections behind it **fade back to the lit colour** over about three
     quarters of a second. The result is a comet tail: darkest at the mark, fading to nothing behind.

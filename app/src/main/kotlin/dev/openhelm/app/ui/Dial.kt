@@ -458,7 +458,15 @@ val MinDialSize: Dp = 156.dp
  */
 private const val OK_RADIUS = 0.36f
 private const val SECTOR_RADIUS = 0.78f
-private const val STEP_DEGREES = 20.0
+/**
+ * Degrees of ring travel per zoom step.
+ *
+ * 24, giving 15 detents to a revolution. At 20 the ring took about 38dp of thumb travel to a click,
+ * which on a moving deck turned a small unintended movement into a range change; 24 makes it about
+ * 45dp without making a deliberate sweep feel laboured. Must divide 360 exactly — the ring is drawn
+ * as one section per detent, and a remainder would leave a wedge unaccounted for.
+ */
+private const val STEP_DEGREES = 24.0
 
 /** One ring section per detent. */
 private val SectionCount = (360 / STEP_DEGREES).toInt()
@@ -480,7 +488,7 @@ private const val TrailDepth = 0.85f
  * same rate and in the same direction, so nothing about the reading changes except that you can see
  * it.
  *
- * Two sections rather than one because a thumb spans more than a single 20-degree section, and
+ * Two sections rather than one because a thumb spans more than a single detent's section, and
  * lighting only the one it happens to be inside made the mark flicker between neighbours as the
  * angle crossed a boundary. The returned tick is their shared boundary, which is the middle of the
  * pair.

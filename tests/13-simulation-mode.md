@@ -52,10 +52,11 @@ MFD**. **Arch:** any.
   "$ADB" exec-out uiautomator dump /sdcard/u.xml >/dev/null
   # find the Switch node's bounds and tap its centre
   ```
-- **EXPECTED:** The app leaves Settings immediately and shows a remote-shaped screen: a status line
-  reading **Simulated display**, moving colour-bar video on the left, the same side panel (Home,
-  Menu, dial, Back, Range, Switch/WPT, mode-switch key) on the right. No `am start`/relaunch needed —
-  flipping the switch alone performs the transition.
+- **EXPECTED:** The app leaves Settings immediately and shows a remote-shaped screen: an **End
+  simulation** button and an action field in the status bar, the generated chart on the left with a
+  **SIMULATED** badge on it, and the same side panel (Home, Menu, dial, Back, Zoom in/out, Pane,
+  Waypoint) on the right. No `am start`/relaunch needed — flipping the switch alone performs the
+  transition.
 - **VERIFY:** `13_2_entered.png` shows the simulated remote, not Settings. `topResumedActivity` is
   still `.MainActivity` (no new Activity). No crash in logcat.
 - **PASS/FAIL:** PASS if the switch transitions straight into the simulated remote. FAIL if it stays
@@ -208,7 +209,7 @@ This is the test that matters most in this file.
   if a remembered display exists), never the simulated remote. Simulation mode does not survive a
   process restart under any circumstance.
 - **VERIFY:** `13_9_restarted.png` shows real-mode UI: either the connect screen, or a real
-  `Connecting…`/`Connected · <host>` status line — never `Simulated display`.
+  `Connecting…`/`Connected · <host>` status line — never an **End simulation** button.
 - **PASS/FAIL:** PASS if the app always restarts in real mode. **FAIL if it restarts already in
   simulation** — that would mean the flag leaked into DataStore or `SharedPreferences` somewhere,
   which is the one thing this feature must never do.

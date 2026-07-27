@@ -102,12 +102,9 @@ private fun SimulationStatusBar(viewModel: MainViewModel, palette: HelmPalette) 
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(
-            "Simulated display",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.tertiary,
-        )
-        Spacer(Modifier.width(16.dp))
+        // No "Simulated display" caption: it repeated what the End simulation button and the
+        // SIMULATED badge on the picture already say, and it was taking the width the action field
+        // needed to show a full line without truncating.
         SimActionField(
             action = viewModel.simAction,
             repeats = viewModel.simActionRepeats,
