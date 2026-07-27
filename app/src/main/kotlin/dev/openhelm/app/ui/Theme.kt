@@ -20,6 +20,10 @@ private val OpenHelmColors = darkColorScheme(
     surfaceVariant = Color(0xFF1B3247),
     onSurfaceVariant = Color(0xFFB8C7D4),
     error = Color(0xFFEF9A9A),
+    // A muted amber, distinct from primary/secondary/error: marks state that is not a real
+    // connection — currently just "you are exploring a simulated session".
+    tertiary = Color(0xFFD9A441),
+    onTertiary = Color(0xFF3A2900),
 )
 
 @Composable

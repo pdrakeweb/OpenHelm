@@ -10,7 +10,7 @@ number `E70021` is the reliable identifier). "Helm" beats a wrong model string.
 
 > Read [README.md](README.md) first.
 
-**Rig:** A, B or C.
+**Rig:** A, B or C. **Arch:** any — persistence and labelling are architecture-independent.
 
 ---
 
@@ -59,7 +59,7 @@ number `E70021` is the reliable identifier). "Helm" beats a wrong model string.
   ```bash
   "$ADB" shell input tap 2497 113          # overflow menu
   sleep 1
-  tap_text "Manage displays"
+  tap_text "Settings"
   sleep 2
   "$ADB" exec-out screencap -p > 05_3_manage.png
   tap_text "Name"                           # focus the name field
@@ -70,7 +70,8 @@ number `E70021` is the reliable identifier). "Helm" beats a wrong model string.
   sleep 1
   "$ADB" exec-out screencap -p > 05_3_saved.png
   ```
-- **EXPECTED:** The management screen lists each remembered display with an editable **Name**
+- **EXPECTED:** Settings opens with a **Simulation mode** section at the top ([13](13-simulation-mode.md))
+  and a **Displays** section below it listing each remembered display with an editable **Name**
   field, the endpoint detail beneath it (host, model, serial), and **Save** / **Forget**. Save is
   disabled until the name is changed, and disabled again once committed.
 - **VERIFY:** `05_3_saved.png` shows the name in the field and **Save** greyed out (not dirty).
@@ -104,7 +105,7 @@ number `E70021` is the reliable identifier). "Helm" beats a wrong model string.
 - **EXPECTED:** Precedence is **user name → model TXT → host**. A display advertising `E9` with no
   user name shows `E9`; a manually-entered endpoint with no model shows its host.
 - **VERIFY:** Compare the button text against what the display advertises (`find_mfd.py` on rig
-  B/C, or the manage screen's detail line).
+  B/C, or Settings → Displays' detail line).
 - **PASS/FAIL:** PASS if the fallback chain holds. FAIL if an unnamed display shows a blank button.
 
 ---
@@ -123,7 +124,7 @@ The label is cosmetic; the connection must still use the complete endpoint.
   "$ADB" exec-out screencap -p > 05_6_connected.png
   ```
 - **EXPECTED:** Connects to the correct host and control port; the remote's status line shows the
-  real host address. The management screen's detail line still shows host / model / serial.
+  real host address. Settings → Displays' detail line still shows host / model / serial.
 - **VERIFY:** `emu.log` shows the connection; the status line names the right host.
 - **PASS/FAIL:** PASS if the named button connects to the right endpoint. FAIL if naming corrupts
   or truncates the stored endpoint.
@@ -133,7 +134,7 @@ The label is cosmetic; the connection must still use the complete endpoint.
 ### 05.7 Renaming and clearing a name
 
 - **SETUP:** A named display.
-- **STEPS:** Open Manage displays, change the name to `Cockpit`, Save. Then clear the field
+- **STEPS:** Open Settings, change the name to `Cockpit`, Save. Then clear the field
   entirely and Save again.
 - **EXPECTED:** The button updates to `Cockpit`. Clearing the name reverts the label to the model
   or host fallback (a blank name is stored as "no name", not as an empty label).
@@ -147,15 +148,15 @@ The label is cosmetic; the connection must still use the complete endpoint.
 - **SETUP:** At least one remembered display.
 - **STEPS:**
   ```bash
-  "$ADB" shell input tap 2497 113; sleep 1; tap_text "Manage displays"; sleep 2
+  "$ADB" shell input tap 2497 113; sleep 1; tap_text "Settings"; sleep 2
   tap_text "Forget"
   sleep 1
   "$ADB" exec-out screencap -p > 05_8_forgotten.png
   tap_text "Done"; sleep 2
   "$ADB" exec-out screencap -p > 05_8_connect.png
   ```
-- **EXPECTED:** The entry disappears from the management list and its button disappears from the
-  connect screen. If it was the last one, the management screen shows its empty-state text.
+- **EXPECTED:** The entry disappears from the Displays list and its button disappears from the
+  connect screen. If it was the last one, Settings shows the empty-state text for Displays.
 - **VERIFY:** Neither screenshot shows the forgotten display.
 - **PASS/FAIL:** PASS if forget removes it everywhere. FAIL if it reappears (unless you reconnect
   to it, which legitimately re-remembers it).
@@ -181,18 +182,18 @@ The label is cosmetic; the connection must still use the complete endpoint.
 - **SETUP:** Connect to more than four distinct endpoints if your rig allows; otherwise inspect the
   cap in `EndpointStore` and treat the on-device half as BLOCKED.
 - **EXPECTED:** The connect screen shows at most **four** buttons. The store itself keeps a slightly
-  longer history (12) so the management screen can still show and clean up older entries.
-- **VERIFY:** Count buttons on the connect screen; count rows in Manage displays.
+  longer history (12) so Settings → Displays can still show and clean up older entries.
+- **VERIFY:** Count buttons on the connect screen; count rows in Settings → Displays.
 - **PASS/FAIL:** PASS if the connect screen caps at four. FAIL if it grows without bound and pushes
   the scanning state off-screen.
 
 ---
 
-### 05.11 Management screen is reachable only via the overflow menu
+### 05.11 Settings is reachable only via the overflow menu
 
 - **SETUP:** Any state.
-- **EXPECTED:** No "Manage displays" affordance on the connect screen body, the manual screen, or
-  the remote screen — only inside the kebab menu.
-- **VERIFY:** UI-dump each screen and grep for `Manage displays`; it must appear only after opening
-  the overflow.
+- **EXPECTED:** No "Settings" affordance on the connect screen body, the manual screen, or the
+  remote screen — only inside the kebab menu, alongside "Manual connect" (02.4).
+- **VERIFY:** UI-dump each screen and grep for `Settings`; it must appear only after opening the
+  overflow.
 - **PASS/FAIL:** PASS if management is behind the menu. FAIL if it clutters the main screen.

@@ -5,12 +5,13 @@ is either the scanning state or a shortcut. This file tests what is on the scree
 behaves; the connecting itself is [04](04-discovery-and-autoconnect.md).
 
 Design intent being verified: **scanning is the prominent element**, recent displays are **name-only
-buttons** (no address, no ports), manual entry and display management are **off this screen**, and
-the whole thing reads as a GUI rather than a terminal.
+buttons** (no address, no ports), manual entry and Settings are **off this screen entirely** (both
+live behind the overflow menu), and the whole thing reads as a GUI rather than a terminal.
 
 > Read [README.md](README.md) first.
 
-**Rig:** A, B or C.
+**Rig:** A, B or C. **Arch:** any — this is layout and navigation, which does not vary by
+architecture. Re-run once on arm64 as part of a release pass.
 
 ---
 
@@ -25,14 +26,17 @@ the whole thing reads as a GUI rather than a terminal.
   "$ADB" exec-out screencap -p > 02_1_fresh.png
   "$ADB" exec-out uiautomator dump /dev/tty
   ```
-- **EXPECTED:** Centred: the title **OpenHelm**, a ring containing the word **Scanning** with a
-  sweeping arc, and a **Manual connect** text button below. An overflow (kebab) affordance sits in
-  the top-right. **No recent buttons**, no address text, no transport control, no list.
-- **VERIFY:** `02_1_fresh.png` shows the above. The UI dump contains `Scanning` and
-  `Manual connect`, and does **not** contain any of `Video transport`, `Display address`, `control
-  50000`, `video 8555`.
-- **PASS/FAIL:** PASS if the screen is the scanning state plus Manual connect only. FAIL if an
-  address, port, transport selector or endpoint list appears here.
+- **EXPECTED:** Centred: the title **OpenHelm** and a ring containing the word **Scanning** with a
+  sweeping arc. An overflow (kebab) affordance sits in the top-right — that is the **only** other
+  control on a fresh install. **No recent buttons**, no address text, no transport control, no list,
+  and **no "Manual connect" text visible on the body** — it lives inside the overflow menu, not on
+  the screen itself (see 02.4).
+- **VERIFY:** `02_1_fresh.png` shows the above. The UI dump contains `Scanning`, and does **not**
+  contain any of `Manual connect`, `Video transport`, `Display address`, `control 50000`,
+  `video 8555` — those only appear once the overflow menu (or a screen it opens) is on screen.
+- **PASS/FAIL:** PASS if the screen is the scanning state and nothing else. FAIL if an address, port,
+  transport selector, endpoint list, or the "Manual connect" label is visible on the body without
+  opening the overflow menu first.
 
 ---
 
@@ -79,9 +83,12 @@ the whole thing reads as a GUI rather than a terminal.
 
 ---
 
-### 02.4 Overflow menu reaches display management, and nothing else lives there
+### 02.4 Overflow menu holds everything off the main screen — Manual connect and Settings
 
-- **SETUP:** At least one remembered display.
+Both fiddly entry points live in exactly one place: the overflow. This test defines what "off the
+main screen" means for 02.1.
+
+- **SETUP:** Connect screen showing (any state).
 - **STEPS:**
   ```bash
   "$ADB" exec-out uiautomator dump /sdcard/u.xml >/dev/null
@@ -91,11 +98,16 @@ the whole thing reads as a GUI rather than a terminal.
   "$ADB" exec-out uiautomator dump /dev/tty | tr '>' '\n' | grep -i 'text="'
   "$ADB" exec-out screencap -p > 02_4_menu.png
   ```
-- **EXPECTED:** A dropdown containing **Manage displays**.
-- **VERIFY:** The dump contains `Manage displays`. Tapping it opens the management screen
-  ([05](05-remembered-displays.md)).
-- **PASS/FAIL:** PASS if the overflow opens and offers display management. FAIL if display
-  management is reachable only from the main screen body, or if the menu does not open.
+- **EXPECTED:** A dropdown containing exactly two items, in this order: **Manual connect** and
+  **Settings**. Tapping **Manual connect** opens [03-manual-connect.md](03-manual-connect.md)'s
+  screen. Tapping **Settings** opens the settings screen, which holds both the simulation toggle
+  ([13](13-simulation-mode.md)) and display management ([05](05-remembered-displays.md)) — there is
+  no separate "Manage displays" entry any more.
+- **VERIFY:** The dump contains both `Manual connect` and `Settings`, and no other menu items.
+  Tapping each lands on the screen named above.
+- **PASS/FAIL:** PASS if the overflow holds exactly those two entries and both work. FAIL if either
+  is reachable from the main screen body instead, if a stale "Manage displays" label remains, or if
+  the menu does not open.
 
 ---
 

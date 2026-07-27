@@ -6,7 +6,9 @@ app reaches its first screen without crashing. Everything else assumes this pass
 > Read [README.md](README.md) first — it defines `$ADB`, `$PKG`, `$APK`, the rigs, and the
 > install/screenshot/foreground-check commands.
 
-**Rig:** A, B or C (no display needed for 01.1–01.5).
+**Rig:** A, B or C (no display needed for 01.1–01.5). **Arch:** any for 01.1–01.3; **arm64** for
+01.4 onward — a launch that works under a software-emulated x86_64 runtime is not proof it launches
+on the hardware this ships to.
 
 ---
 
@@ -80,8 +82,8 @@ Two toolchain facts were settled painfully and will silently break the build if 
   "$ADB" logcat -d AndroidRuntime:E *:F | tail -40
   "$ADB" exec-out screencap -p > 01_4_launch.png
   ```
-- **EXPECTED:** The connect screen: the word **Scanning** inside a ring, and **Manual connect**.
-  No recent buttons (state was cleared). No crash, no ANR.
+- **EXPECTED:** The connect screen: the word **Scanning** inside a ring, and the overflow (kebab)
+  menu top-right. No recent buttons (state was cleared). No crash, no ANR.
 - **VERIFY:** `topResumedActivity` names `dev.openhelm.app/.MainActivity`. The logcat dump contains
   no `FATAL`/`AndroidRuntime` lines for this package. Look at `01_4_launch.png` and confirm it is
   OpenHelm's dark screen, not another app.
@@ -112,7 +114,61 @@ Two toolchain facts were settled painfully and will silently break the build if 
 
 ---
 
-### 01.6 Reinstall over an existing install preserves data
+### 01.6 The APK carries every shipping ABI
+
+OpenHelm targets ARM devices; the emulator slices are a convenience. A build that has quietly lost
+`arm64-v8a` installs fine on every emulator here and fails on every real phone.
+
+- **SETUP:** A built APK. **Arch:** any (this inspects the artifact, not the runtime).
+- **STEPS:**
+  ```bash
+  BT="$LOCALAPPDATA/Android/Sdk/build-tools/36.0.0"
+  "$BT/aapt.exe" dump badging "$APK" | grep -E "^package|native-code"
+  unzip -l "$APK" | grep -o 'lib/[^/]*' | sort -u
+  ```
+- **EXPECTED:** `native-code:` lists **`arm64-v8a`** and `armeabi-v7a` alongside the x86 slices —
+  a universal APK. The only `.so` files are AndroidX's own
+  (`libandroidx.graphics.path.so`, `libdatastore_shared_counter.so`); the app has **no native code
+  of its own**, which is the structural fix over the predecessor that was pinned to hand-built
+  32-bit-only libraries.
+- **VERIFY:** `arm64-v8a` present in both outputs.
+- **PASS/FAIL:** PASS if `arm64-v8a` is in the APK. **FAIL if it is missing** — check for ABI splits
+  or an `abiFilters` block that dropped it.
+
+---
+
+### 01.7 Install and launch on arm64
+
+- **SETUP:** An `arm64-v8a` AVD (see [README.md](README.md) §1) or a real ARM device.
+  **Arch:** arm64.
+- **STEPS:**
+  ```bash
+  "$ADB" shell getprop ro.product.cpu.abi          # must print arm64-v8a
+  out=$("$ADB" install -r "$APK" 2>&1); echo "$out" | grep -q Success && echo "INSTALL OK"
+  "$ADB" shell pm clear $PKG
+  "$ADB" logcat -c
+  "$ADB" shell am start -n $ACT
+  sleep 8
+  "$ADB" shell "dumpsys activity activities | grep -i topResumedActivity"
+  "$ADB" logcat -d AndroidRuntime:E *:F | tail -40
+  "$ADB" exec-out screencap -p > 01_7_arm64.png
+  ```
+- **EXPECTED:** Identical behaviour to the x86_64 run: the connect screen with **Scanning** and the
+  overflow menu, no crash. The ABI check confirms which runtime actually served the app.
+- **VERIFY:** `ro.product.cpu.abi` is `arm64-v8a`, the app is foreground, logcat is clean, and the
+  screenshot shows the connect screen.
+- **PASS/FAIL:** PASS only if the ABI check says arm64 **and** the app runs. **BLOCKED** if no arm64
+  runtime is available — do not substitute an x86_64 pass.
+
+> ⚠️ **On this project's Windows/x86_64 dev machine this test is BLOCKED, not slow.** Checked
+> directly: the emulator here (36.5.11 / 36.6.11) refuses outright to boot an `arm64-v8a` image on an
+> x86_64 host — `FATAL: Avd's CPU Architecture 'arm64' is not supported by the QEMU2 emulator on
+> x86_64 host.` There is no local workaround on this machine; use a real ARM device. See
+> [README.md](README.md) §0 for the full finding.
+
+---
+
+### 01.8 Reinstall over an existing install preserves data
 
 - **SETUP:** At least one remembered display (run [05](05-remembered-displays.md) 05.1 first).
 - **STEPS:**

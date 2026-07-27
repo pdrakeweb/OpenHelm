@@ -77,6 +77,15 @@ class MainViewModel @Inject constructor(
     var route by mutableStateOf(Route.CONNECT)
         private set
 
+    /**
+     * Explore the app with no display present: a locally-rendered fake video feed and a fully
+     * working keypad, with nothing sent over the network. Deliberately **session-only** — plain
+     * in-memory state, never written to [store] — so the app always starts in real mode and nobody
+     * boots it on the boat into a simulated session left on from last time.
+     */
+    var simulationMode by mutableStateOf(false)
+        private set
+
     private var discoveryTimeoutJob: Job? = null
     private var probeJob: Job? = null
 
@@ -131,6 +140,19 @@ class MainViewModel @Inject constructor(
     /** Back to the connect screen from a pushed screen. */
     fun backToConnect() {
         route = Route.CONNECT
+    }
+
+    /**
+     * Enter simulation. Any real session is torn down first — a simulated screen sitting on top of
+     * a live connection would be genuinely confusing, and there is exactly one remote screen.
+     */
+    fun enterSimulation() {
+        if (connection.value !is ConnectionState.Idle) disconnect()
+        simulationMode = true
+    }
+
+    fun exitSimulation() {
+        simulationMode = false
     }
 
     /**

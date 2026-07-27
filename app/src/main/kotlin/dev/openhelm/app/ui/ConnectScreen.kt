@@ -55,7 +55,7 @@ import dev.openhelm.app.config.RememberedDisplay
  * show only the display's name because an address is not something anyone reads at a helm.
  *
  * Everything fiddly — typing an address, the video transport, managing saved displays — lives
- * behind Manual connect or the overflow menu, off this screen.
+ * behind the overflow menu, off this screen.
  */
 @Composable
 fun ConnectScreen(viewModel: MainViewModel) {
@@ -71,6 +71,7 @@ fun ConnectScreen(viewModel: MainViewModel) {
 
     Box(Modifier.fillMaxSize()) {
         OverflowMenu(
+            onManual = viewModel::openManual,
             onSettings = viewModel::openSettings,
             modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
         )
@@ -100,12 +101,6 @@ fun ConnectScreen(viewModel: MainViewModel) {
             if (recents.isNotEmpty()) {
                 Spacer(Modifier.height(40.dp))
                 RecentButtons(recents, onConnect = { viewModel.connect(it.endpoint) })
-            }
-
-            Spacer(Modifier.height(40.dp))
-
-            TextButton(onClick = viewModel::openManual) {
-                Text("Manual connect", fontSize = 16.sp)
             }
         }
     }
@@ -207,7 +202,11 @@ private fun RecentButtons(
 
 /** The kebab. Drawn rather than imported, like every other glyph here. */
 @Composable
-private fun OverflowMenu(onSettings: () -> Unit, modifier: Modifier = Modifier) {
+private fun OverflowMenu(
+    onManual: () -> Unit,
+    onSettings: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     var open by remember { mutableStateOf(false) }
     val tint = MaterialTheme.colorScheme.onSurfaceVariant
 
@@ -223,7 +222,14 @@ private fun OverflowMenu(onSettings: () -> Unit, modifier: Modifier = Modifier) 
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             DropdownMenuItem(
-                text = { Text("Manage displays") },
+                text = { Text("Manual connect") },
+                onClick = {
+                    open = false
+                    onManual()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Settings") },
                 onClick = {
                     open = false
                     onSettings()

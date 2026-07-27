@@ -20,6 +20,7 @@ import dev.openhelm.app.ui.OpenHelmTheme
 import dev.openhelm.app.ui.RemoteScreen
 import dev.openhelm.app.ui.Route
 import dev.openhelm.app.ui.SettingsScreen
+import dev.openhelm.app.ui.SimulatedRemoteScreen
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
@@ -41,8 +42,12 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun AppRoot(viewModel: MainViewModel = viewModel()) {
-    val state by viewModel.connection.collectAsStateWithLifecycle()
+    if (viewModel.simulationMode) {
+        SimulatedRemoteScreen(viewModel)
+        return
+    }
 
+    val state by viewModel.connection.collectAsStateWithLifecycle()
     if (state !is ConnectionState.Idle) {
         RemoteScreen(viewModel, state)
         return

@@ -21,6 +21,52 @@ the shared harness every test file depends on — read it first.**
 | [10-app-lifecycle-and-network.md](10-app-lifecycle-and-network.md) | Rotation, background/resume, Wi-Fi binding, back stack |
 | [11-latency.md](11-latency.md) | Glass-to-glass latency — **real phone only** |
 | [12-clean-room-and-provenance.md](12-clean-room-and-provenance.md) | Clean-room greps, subtree isolation, licence |
+| [13-simulation-mode.md](13-simulation-mode.md) | Settings' Simulation mode: fake video, live controls, non-persistence |
+
+---
+
+## 0. Architecture: ARM is the target
+
+**OpenHelm ships to ARM phones and tablets. `arm64-v8a` is the architecture that counts.**
+
+An x86_64 emulator is a convenience, not a verification target. Use it freely for UI work,
+navigation, protocol framing and state machines — all of which are architecture-independent — but
+**a release is not verified until it has run on real ARM hardware.**
+
+The reason is specific and it is the video path: `MediaCodec` on an x86_64 emulator resolves to a
+software/emulated decoder, whereas an ARM phone uses the vendor's hardware decoder. Low-latency
+decode, codec priority, output-buffer timing and colour formats can all differ, and latency is this
+project's headline claim. A pipeline that looks right under a software decoder can still miss its
+budget on the hardware that matters.
+
+> ⚠️ **There is no local `arm64` AVD path on a Windows/x86_64 host, full stop — not merely a slow
+> one.** This was checked directly: current emulator releases (36.5.11 / 36.6.11, the only ones this
+> SDK channel offers) refuse outright to boot an `arm64-v8a` system image on an x86_64 host —
+> `FATAL: Avd's CPU Architecture 'arm64' is not supported by the QEMU2 emulator on x86_64 host.
+> System image must match the host architecture.` Older emulator releases had ARM-on-x86 support via
+> software (TCG) instruction translation, but it is gone from the versions available here, and even
+> where it existed it was reportedly slow enough (order tens of times real time) to be impractical
+> for a video-decode-heavy app like this one. **Do not spend time chasing an arm64 AVD on this
+> machine** — on an Apple Silicon Mac the image would run *natively* and this limitation would not
+> apply, but that is not this host. The only way to satisfy an **arm64**-tagged test here is a real
+> device.
+
+Check what you are actually running on before trusting any result:
+
+```bash
+"$ADB" shell getprop ro.product.cpu.abi          # expect arm64-v8a for a real verification run
+"$ADB" shell getprop ro.product.cpu.abilist
+```
+
+Every test below is tagged with an **Arch** requirement:
+
+| Tag | Meaning |
+|---|---|
+| **any** | Architecture-independent — x86_64 emulator is fine. |
+| **arm64** | Must run where `ro.product.cpu.abi` reports `arm64-v8a` to count — a real device, or an AVD on a host where one can actually boot (not this machine; see above). |
+| **device** | Must be real ARM hardware; no emulator result is meaningful even where arm64 AVDs work. |
+
+If you have only an x86_64 emulator, an **arm64**-tagged test is **BLOCKED**, not PASS.
 
 ---
 
@@ -34,6 +80,23 @@ have is **BLOCKED**, not FAIL.
 The Android emulator plus the MFD simulator running on the same host. Covers everything except
 video transport realism and latency.
 
+**On a host where an arm64 AVD actually boots** (confirmed not this Windows/x86_64 machine — see §0
+— but plausible on Apple Silicon, or an x86_64 host with an older emulator package that still carries
+TCG ARM support), preferring it exercises the shipping architecture:
+
+```bash
+SDK="$LOCALAPPDATA/Android/Sdk"    # or $HOME/Library/Android/sdk on macOS
+"$SDK/cmdline-tools/latest/bin/sdkmanager" --install "system-images;android-36-ext19;google_apis;arm64-v8a"
+"$SDK/cmdline-tools/latest/bin/avdmanager" create avd -n OpenHelmArm64 \
+    -k "system-images;android-36-ext19;google_apis;arm64-v8a" -d pixel_6
+"$SDK/emulator/emulator" -avd OpenHelmArm64 -no-boot-anim &
+while [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" != "1" ]; do sleep 3; done
+"$ADB" shell getprop ro.product.cpu.abi        # confirm arm64-v8a before trusting the run
+```
+
+**On this project's Windows/x86_64 dev machine, skip straight to an x86_64 AVD** for everything
+tagged **any**, and treat every **arm64**-tagged test as BLOCKED until rig B or C is available:
+
 ```bash
 # 1. Start the simulator (host). --source clock burns a frame counter into every frame.
 cd emulator
@@ -44,8 +107,8 @@ python -m mfd_emulator --no-console --video-mode hls --source clock --log-file e
 while [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" != "1" ]; do sleep 3; done
 ```
 
-Then in the app: **Manual connect** → address `10.0.2.2:8555:50000:RAYMARINEMFD:10` → transport
-**TCP (testing only)** → Connect.
+Then in the app: overflow menu (top-right) → **Manual connect** → address
+`10.0.2.2:8555:50000:RAYMARINEMFD:10` → transport **TCP (testing only)** → Connect.
 
 > **Why manual, and why TCP.** The AVD's SLIRP NAT carries neither mDNS multicast (so discovery
 > cannot find the simulator) nor inbound RTP over UDP (so video cannot arrive). `10.0.2.2` is the
@@ -62,8 +125,8 @@ python -m mfd_emulator --no-console --source clock --log-file emu.log   # defaul
 adb devices          # note the phone's serial; use adb -s <serial> throughout
 ```
 
-In the app: let it scan (discovery should find the simulator), or **Manual connect** →
-`<host-LAN-IP>` → transport **UDP**.
+In the app: let it scan (discovery should find the simulator), or overflow menu → **Manual
+connect** → `<host-LAN-IP>` → transport **UDP**.
 
 > Windows: the Wi-Fi profile must be **Private** or mDNS is blocked outright, and inbound rules are
 > needed for TCP 8555/50000 and UDP 5353.
@@ -83,15 +146,18 @@ that string is abbreviated and does **not** identify the hardware; the serial's 
 
 ### What each rig can prove
 
-| | Rig A (AVD) | Rig B (phone + sim) | Rig C (boat) |
-|---|---|---|---|
-| Build, install, launch, UI, navigation | ✅ | ✅ | ✅ |
-| Control channel framing | ✅ | ✅ | ✅ |
-| mDNS discovery | ❌ NAT blocks multicast | ✅ | ✅ |
-| Video renders | ✅ over TCP only | ✅ over UDP | ✅ |
-| RTP-over-UDP transport | ❌ | ✅ | ✅ |
-| **Latency** | ❌ **never** | ⚠️ indicative | ✅ authoritative |
-| What the display actually *does* | ❌ | ❌ | ✅ |
+| | Rig A/x86_64 | Rig A/arm64 | Rig B (phone + sim) | Rig C (boat) |
+|---|---|---|---|---|
+| Build, install, launch, UI, navigation | ✅ | ✅ | ✅ | ✅ |
+| Control channel framing | ✅ | ✅ | ✅ | ✅ |
+| **Shipping architecture exercised** | ❌ | ✅ | ✅ | ✅ |
+| **Hardware video decode** | ❌ software codec | ⚠️ emulated | ✅ | ✅ |
+| mDNS discovery | ❌ NAT blocks multicast | ❌ same | ✅ | ✅ |
+| Video renders | ✅ over TCP only | ✅ over TCP only | ✅ over UDP | ✅ |
+| RTP-over-UDP transport | ❌ | ❌ | ✅ | ✅ |
+| **Latency** | ❌ **never** | ❌ **never** | ⚠️ indicative | ✅ authoritative |
+| Timing-sensitive behaviour (holds) | ⚠️ | ⚠️ slow under emulation | ✅ | ✅ |
+| What the display actually *does* | ❌ | ❌ | ❌ | ✅ |
 
 > ⚠️ **Never judge latency on an AVD.** Its only working video path is segment-buffered and sits
 > seconds behind live by construction — the same range as the bug this app exists to fix, so it

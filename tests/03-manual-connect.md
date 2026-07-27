@@ -1,7 +1,8 @@
 # 03 — Manual connect and the transport dropdown
 
 Typing an address is a **first-class way in**, not a fallback: mDNS is routinely blocked or flaky on
-boat Wi-Fi. It lives on its own screen so the connect screen can stay a single scanning state.
+boat Wi-Fi. It lives on its own screen, reached from the overflow menu, so the connect screen can
+stay a single scanning state.
 
 The video transport selector lives here **and only here**. UDP is what every real display serves;
 the interleaved-TCP option exists solely so a simulator behind an emulator's NAT can deliver frames.
@@ -9,7 +10,7 @@ the interleaved-TCP option exists solely so a simulator behind an emulator's NAT
 > Read [README.md](README.md) first.
 
 **Rig:** A (address `10.0.2.2:8555:50000:RAYMARINEMFD:10`, transport TCP), B or C (bare host IP,
-transport UDP).
+transport UDP). **Arch:** any — form handling and parsing are architecture-independent.
 
 ---
 
@@ -18,6 +19,8 @@ transport UDP).
 - **SETUP:** Connect screen showing.
 - **STEPS:**
   ```bash
+  "$ADB" shell input tap 2497 113      # the overflow (kebab), top-right
+  sleep 1
   tap_text "Manual connect"
   sleep 2
   "$ADB" exec-out screencap -p > 03_1_manual.png
@@ -127,7 +130,7 @@ Needed for unusual setups and for the simulator, whose ports differ from a real 
   sleep 1
   "$ADB" shell am force-stop $PKG && "$ADB" shell am start -n $ACT
   sleep 4
-  tap_text "Manual connect"; sleep 2
+  "$ADB" shell input tap 2497 113; sleep 1; tap_text "Manual connect"; sleep 2
   "$ADB" exec-out uiautomator dump /dev/tty | tr '>' '\n' | grep -iE 'text="(UDP|TCP.*)"' | head -1
   ```
 - **EXPECTED:** The dropdown still reads **TCP (testing only)** after a restart — a development

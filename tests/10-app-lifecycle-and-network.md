@@ -146,13 +146,16 @@ RTSP and the control channel are plaintext by nature.
 
 ### 10.8 Back stack behaves from every screen
 
-- **SETUP:** Each of: manual connect, manage displays, full-screen remote, side-by-side.
+- **SETUP:** Each of: manual connect, settings, simulated remote (side-by-side and full-screen),
+  full-screen remote, side-by-side.
 - **STEPS:** From each, press system Back once and record where you land.
 - **EXPECTED:**
   | From | Back goes to |
   |---|---|
   | Manual connect | Connect screen (no connection attempted) |
-  | Manage displays | Connect screen |
+  | Settings | Connect screen |
+  | Simulated remote, side-by-side | Connect screen (exits simulation) |
+  | Simulated remote, full-screen | Simulated remote, side-by-side |
   | Full-screen remote | Side-by-side |
   | Side-by-side | Disconnect → connect screen |
   | Connect screen | Leaves the app normally (the only place that should) |

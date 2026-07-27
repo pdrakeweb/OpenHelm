@@ -40,6 +40,43 @@ without an emulator, and is reusable by desktop tooling.
 ./gradlew :protocol:test
 ```
 
+## Target devices — ARM first
+
+**OpenHelm is deployed to ARM phones and tablets.** `arm64-v8a` is the primary target and the
+architecture every release must be verified on; `armeabi-v7a` is carried for older hardware. The
+x86/x86_64 slices exist only so the app can run on a convenience emulator, and **an x86_64 emulator
+run does not count as verification of a release**.
+
+This matters more than the usual "it's all portable Kotlin", for one specific reason: **the video
+pipeline is hardware-dependent.** `MediaCodec` on an x86_64 emulator resolves to a software or
+emulated decoder, while a real ARM phone uses the vendor's hardware decoder. Low-latency decode
+(`KEY_LOW_LATENCY`), realtime codec priority, output-buffer timing, and colour-format handling can
+all behave differently between the two — and latency is this project's headline claim. A pipeline
+that looks correct under a software decoder can still miss its budget on the hardware that matters.
+
+Practical rules:
+
+- Build a **universal APK** (all four ABIs) — the default here; do not add ABI splits that would
+  drop `arm64-v8a`.
+- Run the test suite on **real ARM hardware**, or an `arm64-v8a` AVD if your host can actually boot
+  one, before calling a change verified. See [tests/README.md](tests/README.md) for the rigs.
+- **Latency is only ever measured on real ARM hardware.** No emulator figure is meaningful.
+
+> ⚠️ **On a Windows/x86_64 dev machine there is no local `arm64` AVD, full stop.** Checked directly
+> on this project's machine: the current Android emulator (36.5.11 / 36.6.11) refuses outright to
+> boot an `arm64-v8a` system image on an x86_64 host — `FATAL: Avd's CPU Architecture 'arm64' is not
+> supported by the QEMU2 emulator on x86_64 host. System image must match the host architecture.`
+> Older emulator releases had ARM-on-x86 support via software instruction translation, but it is gone
+> from the versions this SDK channel offers, and it was reportedly slow enough even when it existed
+> to be impractical for a video-heavy app. The x86_64 AVD remains fully useful for everything
+> architecture-independent (UI, navigation, protocol framing, persistence); **arm64 and latency
+> verification require a real ARM phone or tablet.** See [tests/README.md](tests/README.md) §0.
+
+The app contains **no native code of its own**. The only `.so` files in the APK come from AndroidX
+(`libandroidx.graphics.path.so`, `libdatastore_shared_counter.so`) and ship for every ABI. This is
+the structural improvement over the app OpenHelm replaces, which was pinned to a hand-built pair of
+32-bit-only native libraries and died when the platform dropped 32-bit ARM.
+
 ## Design commitments
 
 **Latency is a feature.** Video goes RTSP/RTP → `MediaCodec` → Surface with no buffering beyond a
