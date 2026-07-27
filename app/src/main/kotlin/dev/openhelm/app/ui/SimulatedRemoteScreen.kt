@@ -48,6 +48,8 @@ import kotlin.math.sin
  */
 @Composable
 fun SimulatedRemoteScreen(viewModel: MainViewModel) {
+    LockLandscape()
+
     // Same shape as RemoteScreen's Back handling: leave full-screen before leaving simulation.
     BackHandler {
         if (!viewModel.videoEnabled) viewModel.toggleVideo() else viewModel.exitSimulation()

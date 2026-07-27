@@ -10,26 +10,64 @@ one that matters most and cannot be faked.
 
 ---
 
-### 10.1 Rotation does not drop the session
+### 10.1 The remote screen is landscape-locked, and a forced rotation does not drop the session
+
+The remote and simulated-remote screens force landscape (`LockLandscape`, a helm-mounted phone, not
+a hand-held one) — the connect/manual/settings screens do not. This test checks both halves: the
+lock holds while connected, and whatever happens at the OS level around that lock never drops the
+session.
 
 - **SETUP:** Connected, video rendering.
 - **STEPS:**
   ```bash
-  "$ADB" shell settings put system accelerometer_rotation 0
+  "$ADB" shell getprop ro.product.cpu.abi >/dev/null   # sanity: adb is talking to something
   "$ADB" logcat -c
-  "$ADB" shell settings put system user_rotation 0   # portrait
-  sleep 4; "$ADB" exec-out screencap -p > 10_1_portrait.png
-  "$ADB" shell settings put system user_rotation 1   # landscape
-  sleep 4; "$ADB" exec-out screencap -p > 10_1_landscape.png
+  # Attempt to force portrait via the debug-only system rotation override. A real phone has no
+  # equivalent of this — physically rotating it simply never produces portrait on a locked screen.
+  "$ADB" shell settings put system accelerometer_rotation 0
+  "$ADB" shell settings put system user_rotation 0
+  sleep 3; "$ADB" exec-out screencap -p > 10_1_forced_a.png
+  "$ADB" shell settings put system user_rotation 1
+  sleep 3; "$ADB" exec-out screencap -p > 10_1_forced_b.png
+  "$ADB" shell settings put system accelerometer_rotation 1   # restore auto-rotate before continuing
   tail -5 emulator/emu.log
   ```
-- **EXPECTED:** The control connection survives both rotations — the connection machinery outlives
-  any one screen, so rotating the phone must not reconnect. Video resumes (the surface is recreated,
-  so a brief re-establish is acceptable). Landscape is the primary orientation.
-- **VERIFY:** `emu.log` shows **no** new `client connected` line caused by rotation. Both
-  screenshots show a working session.
-- **PASS/FAIL:** PASS if the control session persists across rotation. FAIL if it reconnects or the
-  app returns to the connect screen.
+- **EXPECTED:** The app's own content never renders as portrait — both screenshots show the same
+  landscape layout (side-by-side video + panel, or the full-screen keypad), never a portrait-shaped
+  arrangement of the controls. (On an emulator, forcing `user_rotation` can rotate the *physical
+  framebuffer* out from under a landscape-locked window, which shows up as the landscape content
+  letterboxed inside a taller capture with black bars — that is an artifact of this debug-only
+  override, not the app rendering portrait, and does not occur from a real physical rotation on a
+  phone.) Throughout, the control connection survives — the connection machinery outlives any one
+  screen, so none of this reconnects it.
+- **VERIFY:** `emu.log` shows **no** new `client connected` line caused by any of this. Neither
+  screenshot shows the keypad/video rearranged into a portrait layout.
+- **PASS/FAIL:** PASS if the app's content stays landscape throughout and the control session is
+  undisturbed. FAIL if the app ever renders its controls in a portrait arrangement, or if the
+  session drops/reconnects.
+
+---
+
+### 10.1b The connect screen is not landscape-locked
+
+- **SETUP:** Connect screen showing (not connected).
+- **STEPS:**
+  ```bash
+  "$ADB" shell settings put system accelerometer_rotation 0
+  "$ADB" shell settings put system user_rotation 0
+  sleep 2; "$ADB" exec-out screencap -p > 10_1b_a.png
+  "$ADB" shell settings put system user_rotation 1
+  sleep 2; "$ADB" exec-out screencap -p > 10_1b_b.png
+  "$ADB" shell settings put system accelerometer_rotation 1
+  ```
+- **EXPECTED:** Unlike the remote screen, the connect screen follows whatever rotation is set —
+  it is not landscape-locked. (On this project's landscape-native tablet AVD, one of the two forced
+  values renders portrait and the other landscape; which is which depends on the device's natural
+  orientation, so compare the two screenshots to each other rather than assuming a specific value
+  means portrait.)
+- **VERIFY:** The two screenshots show two different aspect ratios/layouts for the same screen.
+- **PASS/FAIL:** PASS if the connect screen's orientation follows the forced rotation (proving no
+  lock is applied there). FAIL if it stays landscape-locked outside a real session.
 
 ---
 

@@ -29,6 +29,8 @@ import dev.openhelm.app.rrc.ConnectionState
  */
 @Composable
 fun RemoteScreen(viewModel: MainViewModel, state: ConnectionState) {
+    LockLandscape()
+
     // Back walks the modes before it tears anything down: full-screen remote → side-by-side →
     // disconnect. Nothing here exits the app by surprise.
     BackHandler {
