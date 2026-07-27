@@ -155,11 +155,10 @@ present in the layout, invisible to the user, and still counted as laid out.
   "$ADB" shell wm size 2340x1080 && "$ADB" shell wm density 420   # ≈891 × 411dp
   ```
   Connected or simulating, switched to **Remote**.
-- **EXPECTED:** Every key of both clusters is fully visible. The keys have shrunk to fit rather
-  than being cropped, and no key is below 56dp. Where even the minimum cannot fit, the keypad
-  scrolls.
-- **VERIFY:** Count the named keys in a screenshot — all seven must be there, plus the five
-  direction/OK keys.
+- **EXPECTED:** The dial and every named key are fully visible. They shrink to fit rather than
+  being cropped, and no key is below 56dp. Where even the minimum cannot fit, the keypad scrolls.
+- **VERIFY:** Count the named keys in a screenshot — all seven must be there, with **Back** on a
+  full-width row of its own exactly as on the side panel, plus the dial.
 - **PASS/FAIL:** PASS if nothing is clipped at any window size tried.
 - **Cleanup:** `"$ADB" shell wm size reset && "$ADB" shell wm density reset`
 
@@ -239,11 +238,11 @@ cd openhelm && ./gradlew :app:testDebugUnitTest
 '     | grep -oE 'content-desc="(Go|Open|Zoom|Switch|Place|Cursor)[^"]*"|bounds="[^"]*"'
   ```
   Read the bounds top-down. Back's width must be about twice a normal key's.
-- **KNOWN, and correct:** in the **compact** height band (e.g. 891 × 411dp) the panel is taller
-  than the window and the last pair sits below the fold — the panel scrolls to reach it. That is
-  the designed answer to a window that cannot hold the layout, and it is preferred to shrinking the
-  dial, whose OK hub is already exactly at the 56dp floor. At medium and expanded sizes everything
-  is visible at once.
+- **ALSO:** The panel runs the **full height of the window**, from the top edge to the bottom. The
+  status bar sits over the picture rather than across the whole width, precisely so the panel keeps
+  that height — the ~64dp it used to give up came straight out of every key and the dial. At
+  891 × 411dp all five rows now fit without scrolling, where they previously did not. The scroll
+  remains for windows too small even for the compact band.
 - **PASS/FAIL:** PASS if the order is as above and nothing overlaps. FAIL on a different order, or
   on a control that cannot be reached even by scrolling.
 

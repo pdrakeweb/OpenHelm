@@ -59,42 +59,37 @@ fun SimulatedRemoteScreen(viewModel: MainViewModel, palette: HelmPalette) {
         if (!viewModel.mirroring) viewModel.selectMirroring(true) else viewModel.exitSimulation()
     }
 
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        // The panel's band comes from the height left under the status bar, and the bar's trailing
-        // button is sized from that band, so the bar's height has to be known first rather than
-        // measured. See StatusBarHeight.
-        val metrics = panelMetricsFor(maxHeight - StatusBarHeight)
-
+    // Same shape as the real remote: the bar sits over the picture so the panel owns the full
+    // height. See RemoteScreen.
+    if (viewModel.mirroring) {
+        Row(Modifier.fillMaxSize()) {
+            Column(Modifier.weight(1f).fillMaxHeight()) {
+                SimulationStatusBar(viewModel, palette)
+                SimulatedVideoPane(palette, Modifier.weight(1f).fillMaxWidth())
+            }
+            SidePanel(viewModel)
+        }
+    } else {
         Column(Modifier.fillMaxSize()) {
-            SimulationStatusBar(viewModel, palette, metrics)
-            if (viewModel.mirroring) {
-                Row(Modifier.weight(1f).fillMaxWidth()) {
-                    SimulatedVideoPane(palette, Modifier.weight(1f).fillMaxHeight())
-                    SidePanel(viewModel)
-                }
-            } else {
-                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Keypad(onKeyDown = viewModel::keyDown, onKeyUp = viewModel::keyUp)
-                }
+            SimulationStatusBar(viewModel, palette)
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Keypad(
+                    onKeyDown = viewModel::keyDown,
+                    onKeyUp = viewModel::keyUp,
+                    onRotate = viewModel::zoomStep,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun SimulationStatusBar(
-    viewModel: MainViewModel,
-    palette: HelmPalette,
-    metrics: PanelMetrics,
-) {
+private fun SimulationStatusBar(viewModel: MainViewModel, palette: HelmPalette) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(StatusBarHeight)
-            // No end inset: the trailing action sits in a slot the width of the panel and is
-            // centred in it exactly as the panel centres its own keys, so the two line up in every
-            // size band rather than only in the ones where the key happens to fill its column.
-            .padding(start = 16.dp),
+            .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
@@ -113,14 +108,11 @@ private fun SimulationStatusBar(
             onSelect = viewModel::selectMirroring,
         )
         Spacer(Modifier.width(8.dp))
-        Box(Modifier.width(metrics.panelWidth), contentAlignment = Alignment.Center) {
-            NavActionButton(
-                icon = MfdIcons.Disconnect,
-                label = "Exit simulation",
-                onClick = viewModel::exitSimulation,
-                modifier = Modifier.width(metrics.wideKeyWidth),
-            )
-        }
+        NavActionButton(
+            icon = MfdIcons.Disconnect,
+            label = "End simulation",
+            onClick = viewModel::exitSimulation,
+        )
     }
 }
 

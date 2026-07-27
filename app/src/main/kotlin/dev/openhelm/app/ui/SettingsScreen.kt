@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -152,10 +154,16 @@ private fun PaletteSection(palette: HelmPalette, onSelect: (HelmPalette) -> Unit
                 )
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PaletteChoice(HelmPalette.HIGH_CONTRAST, "High contrast", "Direct sun", palette, onSelect, Modifier.weight(1f))
+            // IntrinsicSize.Max so all three match the tallest, rather than each sizing to its own
+            // caption: "Direct sun" is one line and the others wrap to two, which left the row
+            // looking like three unrelated buttons.
+            Row(
+                Modifier.height(IntrinsicSize.Max),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                PaletteChoice(HelmPalette.HIGH_CONTRAST, "Bright", "Direct sun", palette, onSelect, Modifier.weight(1f))
                 PaletteChoice(HelmPalette.DARK, "Dark", "Overcast, below decks", palette, onSelect, Modifier.weight(1f))
-                PaletteChoice(HelmPalette.NIGHT, "Night", "Red, keeps night vision", palette, onSelect, Modifier.weight(1f))
+                PaletteChoice(HelmPalette.NIGHT, "Night", "Red, night vision", palette, onSelect, Modifier.weight(1f))
             }
         }
     }
@@ -164,12 +172,14 @@ private fun PaletteSection(palette: HelmPalette, onSelect: (HelmPalette) -> Unit
 /**
  * One palette option.
  *
- * Selection is carried by a **border** plus a spoken selected state, not by a bright fill. The
- * obvious spelling — a filled `Button` for the chosen one — made the selected chip the single
- * brightest object on the screen, which is a poor way to present the control whose entire job is
- * removing bright objects: choosing Night lit up a large red block. A border reads just as
- * unambiguously and costs no luminance, and the state is announced regardless, so nothing here
- * depends on seeing colour at all.
+ * Selection is carried by a **tick and a border**, plus a spoken selected state — never by fill
+ * alone. A filled `Button` for the chosen one was the first attempt and made the selected chip the
+ * brightest object on the screen, which is a poor way to present the control whose job is removing
+ * bright objects. Falling back to the container colour was the second, and failed differently: in
+ * the bright palette every container is a dark slab by design, so `primaryContainer` and
+ * `secondaryContainer` sit within a shade of each other and the selected chip was
+ * indistinguishable. The tick owes nothing to the palette, and the border is drawn in the
+ * container's *content* colour so it contrasts with the chip by construction in all three.
  */
 @Composable
 private fun PaletteChoice(
@@ -190,6 +200,7 @@ private fun PaletteChoice(
     FilledTonalButton(
         onClick = { onSelect(value) },
         modifier = modifier
+            .fillMaxHeight()
             .heightIn(min = 84.dp)
             .semantics {
                 role = Role.RadioButton
@@ -204,12 +215,27 @@ private fun PaletteChoice(
         } else {
             ButtonDefaults.filledTonalButtonColors()
         },
-        border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+        border = if (selected) {
+            BorderStroke(2.dp, MaterialTheme.colorScheme.onPrimaryContainer)
+        } else {
+            null
+        },
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
             Spacer(Modifier.size(4.dp))
-            Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (selected) {
+                    Icon(MfdIcons.Confirm, contentDescription = null, modifier = Modifier.size(15.dp))
+                    Spacer(Modifier.size(4.dp))
+                }
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                    maxLines = 1,
+                )
+            }
             Text(
                 detail,
                 style = MaterialTheme.typography.labelSmall,

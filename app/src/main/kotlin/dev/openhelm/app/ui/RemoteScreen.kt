@@ -60,35 +60,37 @@ fun RemoteScreen(viewModel: MainViewModel, state: ConnectionState, palette: Helm
         if (!viewModel.mirroring) viewModel.selectMirroring(true) else confirmDisconnect = true
     }
 
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        // The panel's band comes from the height left under the status bar, and the bar's trailing
-        // Disconnect is sized from that band, so the bar's height is fixed rather than measured.
-        val metrics = panelMetricsFor(maxHeight - StatusBarHeight)
-
+    // The status bar sits over the picture, not across the whole window, so the control panel
+    // starts at the top edge and gets the full height. That is worth more than the tidiness of a
+    // full-width bar: the panel's size band is chosen from the height it is handed, so the ~64dp
+    // the bar used to take off the top was coming straight out of every key and the dial.
+    if (viewModel.mirroring) {
+        Row(Modifier.fillMaxSize()) {
+            Column(Modifier.weight(1f).fillMaxHeight()) {
+                RemoteStatusBar(
+                    viewModel = viewModel,
+                    state = state,
+                    palette = palette,
+                    onDisconnectRequest = { confirmDisconnect = true },
+                )
+                VideoPane(viewModel, palette, Modifier.weight(1f).fillMaxWidth())
+            }
+            SidePanel(viewModel)
+        }
+    } else {
         Column(Modifier.fillMaxSize()) {
             RemoteStatusBar(
                 viewModel = viewModel,
                 state = state,
                 palette = palette,
-                metrics = metrics,
                 onDisconnectRequest = { confirmDisconnect = true },
             )
-            if (viewModel.mirroring) {
-                Row(
-                    Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                ) {
-                    VideoPane(viewModel, palette, Modifier.weight(1f).fillMaxHeight())
-                    SidePanel(viewModel)
-                }
-            } else {
-                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Keypad(
-                        onKeyDown = viewModel::keyDown,
-                        onKeyUp = viewModel::keyUp,
-                    )
-                }
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Keypad(
+                    onKeyDown = viewModel::keyDown,
+                    onKeyUp = viewModel::keyUp,
+                    onRotate = viewModel::zoomStep,
+                )
             }
         }
     }
@@ -128,17 +130,13 @@ private fun RemoteStatusBar(
     viewModel: MainViewModel,
     state: ConnectionState,
     palette: HelmPalette,
-    metrics: PanelMetrics,
     onDisconnectRequest: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(StatusBarHeight)
-            // No end inset: Disconnect sits in a slot the width of the panel and is centred in it
-            // exactly as the panel centres its own keys, so the two line up in every size band
-            // rather than only in the ones where the key happens to fill its column.
-            .padding(start = 12.dp),
+            .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -153,15 +151,12 @@ private fun RemoteStatusBar(
             mirroring = viewModel.mirroring,
             onSelect = viewModel::selectMirroring,
         )
-        Box(Modifier.width(metrics.panelWidth), contentAlignment = Alignment.Center) {
-            HelmActionButton(
-                icon = MfdIcons.Disconnect,
-                label = "Disconnect",
-                onClick = onDisconnectRequest,
-                destructive = true,
-                width = metrics.wideKeyWidth,
-            )
-        }
+        HelmActionButton(
+            icon = MfdIcons.Disconnect,
+            label = "Disconnect",
+            onClick = onDisconnectRequest,
+            destructive = true,
+        )
     }
 }
 

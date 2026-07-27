@@ -85,7 +85,7 @@ fun SidePanel(viewModel: MainViewModel, modifier: Modifier = Modifier) {
 }
 
 /** One band of the panel. */
-private sealed interface PanelRow {
+internal sealed interface PanelRow {
     /** One or two keys side by side. */
     data class Keys(val controls: List<MfdControl>) : PanelRow
 
@@ -121,6 +121,15 @@ private val PanelLayout: List<PanelRow> = listOf(
     PanelRow.Keys(listOf(MfdControl.ZOOM_IN, MfdControl.ZOOM_OUT)),
     PanelRow.Keys(listOf(MfdControl.PANE, MfdControl.WAYPOINT)),
 )
+
+/**
+ * The panel's rows with the dial removed.
+ *
+ * The full-screen remote uses this for its named keys and places the dial as a separate cluster
+ * beside them, so the two modes present the same controls in the same order — including Back on a
+ * row of its own — while using the landscape space differently.
+ */
+internal val namedPanelRows: List<PanelRow> = PanelLayout.filterNot { it is PanelRow.DialRow }
 
 /** The controls the panel actually places, in visual order. Exposed for the layout test. */
 internal val panelLayoutControls: List<MfdControl>
@@ -164,14 +173,20 @@ internal val StatusBarHeight: Dp = MinHelmTarget + 8.dp
 /**
  * Pick a size band from the available height.
  *
- * Three bands rather than a continuous scale, so the layout is predictable and testable. The
- * thresholds are the heights at which the next band up stops fitting: four key rows plus the dial
- * plus gaps. Labels are dropped in the tightest band before key size is — a smaller target is a
- * safety problem, a missing word is not, and every key keeps its spoken description regardless.
+ * Three bands rather than a continuous scale, so the layout is predictable and testable.
+ *
+ * Each threshold is what that band actually needs — four key rows, the dial, the gaps between them
+ * and the panel's own padding — and nothing more. They used to be considerably higher than that,
+ * set when the panel sat under a full-width status bar and never saw the top of the screen. With
+ * the panel running the full height the old numbers left a tablet in the middle band with about
+ * 180dp of unused height and keys a third smaller than would fit.
+ *
+ * Labels are dropped in the tightest band before key size is — a smaller target is a safety
+ * problem, a missing word is not, and every key keeps its spoken description regardless.
  */
 internal fun panelMetricsFor(availableHeight: Dp): PanelMetrics = when {
-    // Expanded — a tablet at a nav station. Use the room.
-    availableHeight >= 820.dp -> PanelMetrics(
+    // Expanded — a tablet at a nav station. Needs 4*88 + 216 + 4*8 + 16 = 616dp.
+    availableHeight >= 632.dp -> PanelMetrics(
         panelWidth = 260.dp,
         keyWidth = 118.dp,
         keyHeight = 88.dp,
@@ -180,8 +195,8 @@ internal fun panelMetricsFor(availableHeight: Dp): PanelMetrics = when {
         showLabels = true,
     )
 
-    // Medium — a large phone in landscape, or a small tablet.
-    availableHeight >= 560.dp -> PanelMetrics(
+    // Medium — a large phone in landscape, or a small tablet. Needs 4*68 + 168 + 4*6 + 12 = 476dp.
+    availableHeight >= 492.dp -> PanelMetrics(
         panelWidth = 208.dp,
         keyWidth = 94.dp,
         keyHeight = 68.dp,

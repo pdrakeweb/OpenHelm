@@ -47,9 +47,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.times
 import dev.openhelm.protocol.MfdKey
 
-/** Which way an arrow key points. */
-enum class ArrowDirection { UP, DOWN, LEFT, RIGHT }
-
 /**
  * Minimum size for anything on the remote that takes a press.
  *
@@ -189,84 +186,6 @@ fun ControlKey(
     }
 }
 
-/** A key showing a short text label. All labels here are this project's own wording. */
-@Composable
-fun LabelKey(
-    label: String,
-    onDown: () -> Unit,
-    onUp: () -> Unit,
-    modifier: Modifier = Modifier,
-    size: Dp = 64.dp,
-    width: Dp = size,
-) {
-    MfdKeyButton(
-        onDown = onDown,
-        onUp = onUp,
-        modifier = modifier,
-        size = size,
-        width = width,
-        contentDescription = label,
-    ) { pressed ->
-        val controls = LocalHelmControls.current
-        Text(
-            text = label,
-            color = if (pressed) controls.keyPressedContent else controls.keyContent,
-            fontSize = if (label.length > 2) 14.sp else 20.sp,
-            fontWeight = FontWeight.SemiBold,
-            textAlign = TextAlign.Center,
-        )
-    }
-}
-
-/** A key showing a triangle arrow, drawn right here — no icon assets. */
-@Composable
-fun ArrowKey(
-    direction: ArrowDirection,
-    onDown: () -> Unit,
-    onUp: () -> Unit,
-    modifier: Modifier = Modifier,
-    size: Dp = 64.dp,
-) {
-    val label = when (direction) {
-        ArrowDirection.UP -> "Move the cursor up"
-        ArrowDirection.DOWN -> "Move the cursor down"
-        ArrowDirection.LEFT -> "Move the cursor left"
-        ArrowDirection.RIGHT -> "Move the cursor right"
-    }
-    MfdKeyButton(
-        onDown = onDown,
-        onUp = onUp,
-        modifier = modifier,
-        size = size,
-        contentDescription = label,
-    ) { pressed ->
-        val controls = LocalHelmControls.current
-        val color = if (pressed) controls.keyPressedContent else controls.keyContent
-        Canvas(modifier = Modifier.size(iconSizeFor(size))) {
-            val w = this.size.width
-            val h = this.size.height
-            val path = Path().apply {
-                when (direction) {
-                    ArrowDirection.UP -> {
-                        moveTo(w / 2f, 0f); lineTo(w, h); lineTo(0f, h)
-                    }
-                    ArrowDirection.DOWN -> {
-                        moveTo(0f, 0f); lineTo(w, 0f); lineTo(w / 2f, h)
-                    }
-                    ArrowDirection.LEFT -> {
-                        moveTo(w, 0f); lineTo(w, h); lineTo(0f, h / 2f)
-                    }
-                    ArrowDirection.RIGHT -> {
-                        moveTo(0f, 0f); lineTo(w, h / 2f); lineTo(0f, h)
-                    }
-                }
-                close()
-            }
-            drawPath(path, color)
-        }
-    }
-}
-
 /**
  * Icon glyphs scale with their key, within bounds, so every mode looks like one family.
  *
@@ -297,8 +216,12 @@ internal val LabelTextSize = 9.sp
 fun Keypad(
     onKeyDown: (MfdKey) -> Unit,
     onKeyUp: (MfdKey) -> Unit,
+    onRotate: (step: Int, accumulated: Int) -> Unit,
     modifier: Modifier = Modifier,
-    maxKeySize: Dp = 88.dp,
+    // Higher than the side panel's ceiling because this mode has the whole window. At 88dp a
+    // tablet left most of the screen empty around a small cluster, which wastes the one advantage
+    // remote-only has over the panel.
+    maxKeySize: Dp = 120.dp,
 ) {
     val gap = 8.dp
     val clusterGap = 28.dp
@@ -313,7 +236,15 @@ fun Keypad(
             horizontalArrangement = Arrangement.spacedBy(clusterGap),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            DirectionCluster(onKeyDown, onKeyUp, size, gap)
+            // The same dial the side panel has, at three key rows across. Remote-only used to
+            // offer four arrow keys and an OK instead, which quietly dropped the rotary zoom
+            // altogether and meant the two modes taught different controls.
+            Dial(
+                onKeyDown = onKeyDown,
+                onKeyUp = onKeyUp,
+                onRotate = onRotate,
+                size = size * 3 + gap * 2,
+            )
             NamedKeyCluster(onKeyDown, onKeyUp, size, gap)
         }
     }
@@ -342,32 +273,13 @@ internal fun keySizeFor(
     return minOf(byHeight, byWidth, maxKeySize).coerceAtLeast(MinHelmTarget)
 }
 
-/** Hold to sweep the cursor (the display auto-repeats), tap for ~1 px. */
-@Composable
-private fun DirectionCluster(
-    onKeyDown: (MfdKey) -> Unit,
-    onKeyUp: (MfdKey) -> Unit,
-    keySize: Dp,
-    gap: Dp,
-) {
-    fun handlers(key: MfdKey): Pair<() -> Unit, () -> Unit> =
-        Pair({ onKeyDown(key) }, { onKeyUp(key) })
-
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(gap),
-    ) {
-        handlers(MfdKey.UP).let { (d, u) -> ArrowKey(ArrowDirection.UP, d, u, size = keySize) }
-        Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-            handlers(MfdKey.LEFT).let { (d, u) -> ArrowKey(ArrowDirection.LEFT, d, u, size = keySize) }
-            handlers(MfdKey.OK).let { (d, u) -> LabelKey("OK", d, u, size = keySize) }
-            handlers(MfdKey.RIGHT).let { (d, u) -> ArrowKey(ArrowDirection.RIGHT, d, u, size = keySize) }
-        }
-        handlers(MfdKey.DOWN).let { (d, u) -> ArrowKey(ArrowDirection.DOWN, d, u, size = keySize) }
-    }
-}
-
-/** The named keys, in the canonical order shared with the side panel. */
+/**
+ * The named keys, in the same arrangement the side panel uses.
+ *
+ * Driven by [namedPanelRows] rather than by chunking the control list into pairs, so Back keeps the
+ * full-width row it has on the panel instead of being paired off with whatever follows it. The two
+ * modes are the same panel at two sizes; anything that makes them differ is a defect.
+ */
 @Composable
 private fun NamedKeyCluster(
     onKeyDown: (MfdKey) -> Unit,
@@ -375,20 +287,31 @@ private fun NamedKeyCluster(
     keySize: Dp,
     gap: Dp,
 ) {
-    // Two across, in panelOrder, so the keypad and the side panel present the same sequence.
-    val rows = MfdControl.panelOrder.chunked(2)
+    val wide = keySize * 2 + gap
     Column(verticalArrangement = Arrangement.spacedBy(gap)) {
-        rows.forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                row.forEach { control ->
-                    ControlKey(
-                        control = control,
-                        onDown = { onKeyDown(control.key) },
-                        onUp = { onKeyUp(control.key) },
-                        size = keySize,
-                    )
+        namedPanelRows.forEach { row ->
+            when (row) {
+                is PanelRow.Keys -> Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                    row.controls.forEach { control ->
+                        ControlKey(
+                            control = control,
+                            onDown = { onKeyDown(control.key) },
+                            onUp = { onKeyUp(control.key) },
+                            size = keySize,
+                        )
+                    }
+                    if (row.controls.size == 1) Spacer(Modifier.width(keySize))
                 }
-                if (row.size == 1) Spacer(Modifier.width(keySize))
+
+                is PanelRow.WideKey -> ControlKey(
+                    control = row.control,
+                    onDown = { onKeyDown(row.control.key) },
+                    onUp = { onKeyUp(row.control.key) },
+                    size = keySize,
+                    width = wide,
+                )
+
+                PanelRow.DialRow -> Unit // filtered out; the dial is its own cluster
             }
         }
     }

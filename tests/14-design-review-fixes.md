@@ -69,8 +69,8 @@ The mirror-image defect: a 180dp phone-sized panel reused verbatim on a 10.9" ta
 - **PASS/FAIL:** PASS if every control clears 56dp. FAIL on any that does not.
 
 > **Known, documented exception:** the dial's four *direction sectors* clear 56dp tangentially but
-> their radial band is narrower. See `MinDialSize`'s comment for why, and note that the
-> full-screen keypad offers the same four commands at full size. Re-measure this one on real
+> their radial band is narrower. See `MinDialSize`'s comment for why, and note that Remote-only
+> presents the same dial at a much larger size. Re-measure this one on real
 > hardware with gloves — it is a considered trade, not a compliance claim.
 
 ---

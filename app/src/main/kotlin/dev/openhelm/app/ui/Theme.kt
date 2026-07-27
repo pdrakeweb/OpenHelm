@@ -93,7 +93,7 @@ private object Navy {
  * Overcast, twilight, below decks. The conventional dark theme, and the default.
  *
  * Note how many roles are named. Material's tonal and segmented buttons — every *Done*, *Back*,
- * *Exit simulation* and the Mirror/Remote switch — draw from `secondaryContainer`, the destructive
+ * *End simulation* and the Mirror/Remote switch — draw from `secondaryContainer`, the destructive
  * variant from `errorContainer`, and switch tracks from `surfaceContainerHighest`. Leaving one
  * unset does not derive it from the palette: the scheme builder fills it from Material's baseline,
  * which is purple in the dark schemes and near-white in the light one. That produced a row of
@@ -172,7 +172,7 @@ private val HighContrastColors = lightColorScheme(
     onPrimaryContainer = Color(0xFFFFFFFF),
     secondary = Color(0xFF0A4A42),
     onSecondary = Color(0xFFFFFFFF),
-    // The tonal-button container: Mirror/Remote, Done, Back, Exit simulation.
+    // The tonal-button container: Mirror/Remote, Done, Back, End simulation.
     secondaryContainer = Color(0xFF12314C),
     onSecondaryContainer = Color(0xFFFFFFFF),
     tertiary = Color(0xFF4A3400),

@@ -16,7 +16,7 @@ import androidx.compose.ui.unit.dp
 import dev.openhelm.app.ui.icons.MfdIcons
 
 /**
- * Steps the display through high contrast → dark → night, from inside a live session.
+ * Steps the display through bright → dark → night, from inside a live session.
  *
  * Reachable while connected on purpose. Light conditions change during a passage, and the moment
  * the screen is too bright is exactly the moment when disconnecting to go and find a settings
@@ -64,7 +64,7 @@ private const val NIGHT_DIM_ALPHA = 0.55f
 @Composable
 fun PaletteButton(palette: HelmPalette, onCycle: () -> Unit, modifier: Modifier = Modifier) {
     val (icon, name) = when (palette) {
-        HelmPalette.HIGH_CONTRAST -> MfdIcons.PaletteDay to "High contrast"
+        HelmPalette.HIGH_CONTRAST -> MfdIcons.PaletteDay to "Bright"
         HelmPalette.DARK -> MfdIcons.PaletteDusk to "Dark"
         HelmPalette.NIGHT -> MfdIcons.PaletteNight to "Night"
     }
