@@ -23,6 +23,7 @@ the shared harness every test file depends on — read it first.**
 | [12-clean-room-and-provenance.md](12-clean-room-and-provenance.md) | Clean-room greps, subtree isolation, licence |
 | [13-simulation-mode.md](13-simulation-mode.md) | Settings' Simulation mode: fake video, live controls, non-persistence |
 | [14-design-review-fixes.md](14-design-review-fixes.md) | The design review's P0s: adaptive panel, touch targets, stale-video, vocabulary, icons |
+| [15-council-fixes.md](15-council-fixes.md) | The code review's findings: pinch leakage, gesture cancellation, scrim touches, day/dusk/night, accessibility |
 
 ---
 

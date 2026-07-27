@@ -49,8 +49,12 @@ import kotlin.math.sin
  * screen uses, so side-by-side and full-screen behave identically to the real thing.
  */
 @Composable
-fun SimulatedRemoteScreen(viewModel: MainViewModel) {
+fun SimulatedRemoteScreen(viewModel: MainViewModel, palette: HelmPalette) {
     LockLandscape()
+    // Simulation exists so the layout that ships can be inspected without a display. That only
+    // holds if it composes the same window treatment: without this, the bars stayed visible here
+    // and simulation showed a window shape the real session never has.
+    ImmersiveWhileConnected()
 
     // Same shape as RemoteScreen's Back handling: leave full-screen before leaving simulation.
     BackHandler {
@@ -58,10 +62,10 @@ fun SimulatedRemoteScreen(viewModel: MainViewModel) {
     }
 
     Column(Modifier.fillMaxSize()) {
-        SimulationStatusBar(viewModel)
+        SimulationStatusBar(viewModel, palette)
         if (viewModel.videoEnabled) {
             Row(Modifier.weight(1f).fillMaxWidth()) {
-                SimulatedVideoPane(Modifier.weight(1f).fillMaxHeight())
+                SimulatedVideoPane(palette, Modifier.weight(1f).fillMaxHeight())
                 SidePanel(viewModel)
             }
         } else {
@@ -73,7 +77,7 @@ fun SimulatedRemoteScreen(viewModel: MainViewModel) {
 }
 
 @Composable
-private fun SimulationStatusBar(viewModel: MainViewModel) {
+private fun SimulationStatusBar(viewModel: MainViewModel, palette: HelmPalette) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -85,6 +89,10 @@ private fun SimulationStatusBar(viewModel: MainViewModel) {
             color = MaterialTheme.colorScheme.tertiary,
         )
         Spacer(Modifier.weight(1f))
+        // Same position and behaviour as the real status bar — simulation is only useful as a
+        // preview if the controls it shows are the ones that ship.
+        PaletteButton(palette = palette, onCycle = { viewModel.cyclePalette(palette) })
+        Spacer(Modifier.width(8.dp))
         NavActionButton(
             icon = if (viewModel.videoEnabled) MfdIcons.VideoOff else MfdIcons.VideoOn,
             label = if (viewModel.videoEnabled) "Video off" else "Video on",
@@ -106,7 +114,7 @@ private fun SimulationStatusBar(viewModel: MainViewModel) {
  * shows, since the two mean very different things.
  */
 @Composable
-private fun SimulatedVideoPane(modifier: Modifier = Modifier) {
+private fun SimulatedVideoPane(palette: HelmPalette, modifier: Modifier = Modifier) {
     var frame by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
@@ -166,6 +174,11 @@ private fun SimulatedVideoPane(modifier: Modifier = Modifier) {
                 )
             }
         }
+
+        // Same night dimming as the real pane, from the same helper. Without it simulation showed
+        // a fully bright chart under a night-mode UI, which is precisely the thing night mode
+        // exists to prevent — and precisely the sort of divergence simulation exists to expose.
+        NightDim(palette)
     }
 }
 

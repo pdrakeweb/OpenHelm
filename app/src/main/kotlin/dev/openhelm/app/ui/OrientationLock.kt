@@ -2,6 +2,7 @@ package dev.openhelm.app.ui
 
 import android.app.Activity
 import android.content.pm.ActivityInfo
+import android.view.WindowManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalContext
@@ -32,6 +33,28 @@ fun LockLandscape() {
         onDispose {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
+    }
+}
+
+/**
+ * Keeps the screen awake for as long as the caller stays composed.
+ *
+ * This belongs to the *session*, not to the video. It used to be a `keepScreenOn = true` on the
+ * `TextureView`, which meant the screen slept the moment the user switched to the full-screen
+ * keypad — the video pane and its flag left the composition together. Someone steering with the
+ * keypad has the same reason not to want the display blanking as someone watching the chart, and
+ * a mounted phone gets few touches to keep it awake by itself.
+ *
+ * The flag is cleared on dispose rather than left set, so leaving the session hands the normal
+ * screen timeout back and the app does not quietly hold the display on in the background.
+ */
+@Composable
+fun KeepScreenOn() {
+    val context = LocalContext.current
+    DisposableEffect(Unit) {
+        val window = (context as? Activity)?.window
+        window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
 }
 

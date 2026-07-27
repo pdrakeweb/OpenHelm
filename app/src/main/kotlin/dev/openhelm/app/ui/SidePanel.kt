@@ -114,12 +114,20 @@ private fun panelMetricsFor(availableHeight: Dp): PanelMetrics = when {
     )
 
     // Compact height — a phone in landscape. This is the band the old fixed layout overflowed.
-    else -> PanelMetrics(
-        panelWidth = 148.dp,
-        keyWidth = MinHelmTarget + 10.dp,
-        keyHeight = MinHelmTarget,
-        dialSize = 132.dp,
-        gap = 4.dp,
-        showLabels = false,
-    )
+    //
+    // The width is derived, not chosen: it must hold the dial at its own floor, or the dial gets
+    // a narrower box than it asked for and its drawn and tappable geometry come apart. Two keys
+    // plus their gap also has to fit, so take whichever is larger.
+    else -> {
+        val compactKeyWidth = MinHelmTarget + 10.dp
+        val gap = 4.dp
+        PanelMetrics(
+            panelWidth = maxOf(MinDialSize, compactKeyWidth * 2 + gap) + gap * 2,
+            keyWidth = compactKeyWidth,
+            keyHeight = MinHelmTarget,
+            dialSize = MinDialSize,
+            gap = gap,
+            showLabels = false,
+        )
+    }
 }

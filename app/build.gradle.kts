@@ -57,4 +57,10 @@ dependencies {
 
     implementation("com.google.dagger:hilt-android:2.60.1")
     ksp("com.google.dagger:hilt-android-compiler:2.60.1")
+
+    // Local JVM tests only — the pure decision functions behind the layout and the safety copy.
+    // Deliberately not Robolectric or an instrumentation suite: what is worth locking down here is
+    // arithmetic and string handling that can be checked at window sizes and against inputs no
+    // emulator conveniently produces.
+    testImplementation("junit:junit:4.13.2")
 }

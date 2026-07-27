@@ -3,6 +3,7 @@ package dev.openhelm.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.MaterialTheme
@@ -14,7 +15,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.openhelm.app.rrc.ConnectionState
 import dev.openhelm.app.ui.ConnectScreen
+import dev.openhelm.app.ui.HelmPalette
 import dev.openhelm.app.ui.MainViewModel
+import dev.openhelm.app.ui.defaultPaletteFor
 import dev.openhelm.app.ui.ManualConnectScreen
 import dev.openhelm.app.ui.OpenHelmTheme
 import dev.openhelm.app.ui.RemoteScreen
@@ -28,12 +31,17 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            OpenHelmTheme {
+            // The view model is resolved above the theme, not inside AppRoot, because the palette
+            // it holds decides the theme for every screen below.
+            val viewModel: MainViewModel = viewModel()
+            val palette = viewModel.palette ?: defaultPaletteFor(isSystemInDarkTheme())
+
+            OpenHelmTheme(palette = palette) {
                 Surface(
                     modifier = Modifier.fillMaxSize().safeDrawingPadding(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    AppRoot()
+                    AppRoot(viewModel, palette)
                 }
             }
         }
@@ -41,15 +49,15 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun AppRoot(viewModel: MainViewModel = viewModel()) {
+private fun AppRoot(viewModel: MainViewModel, palette: HelmPalette) {
     if (viewModel.simulationMode) {
-        SimulatedRemoteScreen(viewModel)
+        SimulatedRemoteScreen(viewModel, palette)
         return
     }
 
     val state by viewModel.connection.collectAsStateWithLifecycle()
     if (state !is ConnectionState.Idle) {
-        RemoteScreen(viewModel, state)
+        RemoteScreen(viewModel, state, palette)
         return
     }
     when (viewModel.route) {

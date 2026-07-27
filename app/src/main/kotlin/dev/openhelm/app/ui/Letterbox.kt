@@ -22,13 +22,23 @@ const val VIDEO_ASPECT: Float = 5f / 3f
  *
  * Choosing the axis to fill explicitly is what makes it safe at every window shape.
  */
-fun letterboxModifier(maxWidth: Dp, maxHeight: Dp): Modifier {
-    val containerAspect = if (maxHeight.value > 0f) maxWidth.value / maxHeight.value else VIDEO_ASPECT
-    return if (containerAspect > VIDEO_ASPECT) {
+fun letterboxModifier(maxWidth: Dp, maxHeight: Dp): Modifier =
+    if (heightIsTheLimit(maxWidth.value, maxHeight.value)) {
         // Container is relatively wider: height is the limit, bars go left and right.
         Modifier.fillMaxHeight().aspectRatio(VIDEO_ASPECT)
     } else {
         // Container is relatively taller: width is the limit, bars go top and bottom.
         Modifier.fillMaxWidth().aspectRatio(VIDEO_ASPECT)
     }
+
+/**
+ * Which axis the 5:3 picture should fill: true to fill the height, false to fill the width.
+ *
+ * Split out from [letterboxModifier] so the choice — the part that was wrong, and that spilled the
+ * video over the status bar — can be checked directly at any window shape, including the degenerate
+ * zero-height first measurement pass.
+ */
+internal fun heightIsTheLimit(widthDp: Float, heightDp: Float): Boolean {
+    if (heightDp <= 0f) return false // nothing to divide by on the first pass; fill width
+    return widthDp / heightDp > VIDEO_ASPECT
 }

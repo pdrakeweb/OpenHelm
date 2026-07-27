@@ -6,8 +6,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,6 +17,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -29,7 +33,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -84,13 +91,21 @@ fun MfdKeyButton(
             .height(size)
             .clip(MaterialTheme.shapes.medium)
             .background(background)
-            .then(
-                if (contentDescription != null) {
-                    Modifier.semantics { this.contentDescription = contentDescription }
-                } else {
-                    Modifier
-                },
-            )
+            // Accessibility has to be declared explicitly: this is a raw pointerInput on a Box, so
+            // nothing about it is a button as far as the framework is concerned, and without a
+            // role and an action TalkBack announced it as unlabelled static content and offered no
+            // way to activate it. The action collapses the press into a down-then-up pair, which
+            // is the right shape for an assistive activation — a screen-reader user cannot express
+            // "hold", and a hold left open would auto-repeat on the display forever.
+            .semantics {
+                role = Role.Button
+                if (contentDescription != null) this.contentDescription = contentDescription
+                onClick {
+                    onDown()
+                    onUp()
+                    true
+                }
+            }
             .pointerInput(Unit) {
                 awaitEachGesture {
                     awaitFirstDown().consume()
@@ -242,31 +257,68 @@ fun ArrowKey(
 }
 
 /** Icon glyphs scale with their key, within sane bounds, so every mode looks like one family. */
-private fun iconSizeFor(keySize: Dp): Dp = (keySize * 0.34f).coerceIn(18.dp, 30.dp)
+internal fun iconSizeFor(keySize: Dp): Dp = (keySize * 0.34f).coerceIn(18.dp, 30.dp)
 
 /**
  * The full-screen keypad, for the control-only remote mode: a directional cluster with OK in the
  * middle, and the display's named keys beside it. The grouping mirrors the *hardware* front
  * panel's functions — a fact of the device, not a copied layout — and the labels, glyphs and
  * order come from [MfdControl.panelOrder], the same source the side panel uses.
+ *
+ * The key size is **measured, not assumed**. It used to be a hard-coded 72dp, which needs 312dp of
+ * height for the named cluster alone; on a compact-height landscape phone that is more than the
+ * window has once the status bar is taken out, and the bottom row was simply clipped away — a key
+ * that is invisible but still counted in the layout is worse than one that is merely small. Now
+ * the size is solved from the space actually given, floored at [MinHelmTarget], and if even the
+ * floor does not fit the keypad scrolls instead of losing a row.
  */
 @Composable
 fun Keypad(
     onKeyDown: (MfdKey) -> Unit,
     onKeyUp: (MfdKey) -> Unit,
     modifier: Modifier = Modifier,
-    keySize: Dp = 72.dp,
+    maxKeySize: Dp = 88.dp,
 ) {
-    val size = keySize.coerceAtLeast(MinHelmTarget)
     val gap = 8.dp
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(28.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        DirectionCluster(onKeyDown, onKeyUp, size, gap)
-        NamedKeyCluster(onKeyDown, onKeyUp, size, gap)
+    val clusterGap = 28.dp
+
+    BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
+        val size = keySizeFor(maxWidth, maxHeight, gap, clusterGap, maxKeySize)
+
+        Row(
+            modifier = Modifier
+                .verticalScroll(rememberScrollState())
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(clusterGap),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            DirectionCluster(onKeyDown, onKeyUp, size, gap)
+            NamedKeyCluster(onKeyDown, onKeyUp, size, gap)
+        }
     }
+}
+
+/**
+ * Solve the largest key that fits both axes, then clamp.
+ *
+ * Vertically the tallest column is the named cluster: four rows of keys and three gaps. Across, the
+ * two clusters sit side by side — three keys and two gaps for the directions, two keys and one gap
+ * for the named ones, plus the gap between the clusters. Both are exact, so this is arithmetic
+ * rather than a table of guessed breakpoints, and it cannot drift out of step with the layout the
+ * way hand-tuned thresholds do.
+ *
+ * Kept internal and free of Compose so it can be unit-tested at window sizes no emulator offers.
+ */
+internal fun keySizeFor(
+    availableWidth: Dp,
+    availableHeight: Dp,
+    gap: Dp,
+    clusterGap: Dp,
+    maxKeySize: Dp,
+): Dp {
+    val byHeight = (availableHeight - gap * 3) / 4
+    val byWidth = (availableWidth - gap * 3 - clusterGap) / 5
+    return minOf(byHeight, byWidth, maxKeySize).coerceAtLeast(MinHelmTarget)
 }
 
 /** Hold to sweep the cursor (the display auto-repeats), tap for ~1 px. */

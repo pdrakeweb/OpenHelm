@@ -13,9 +13,10 @@ the four P0 defects, the control-vocabulary unification, and the icon/button pas
 
 ### 14.1 P0 — the control panel does not overlap itself in compact-height landscape
 
-The original defect: the panel used hard-coded dp, overflowed a ~457dp-tall phone-landscape
+The original defect: the panel used hard-coded dp, overflowed a compact-height phone-landscape
 window, and the dial's ring drew straight through the Back/Range keys — overlapping hit areas on
-a screen whose buttons send real commands.
+a screen whose buttons send real commands. The SETUP below produces **411dp** of height, of which
+the panel gets roughly 390dp once the status bar is taken out.
 
 - **SETUP:** Force a compact-height landscape window. On an AVD this can be done without a second
   device:
@@ -83,17 +84,21 @@ low-contrast caption. A frozen chart read as a live one.
   ```bash
   # stop the simulator (or its FFmpeg publisher) while the app is connected
   ```
-- **STEPS:**
+- **STEPS:** The reconnect loop cycles `Failed → Connecting → Failed`, so a single screenshot at a
+  fixed delay samples an arbitrary point in it. Take several across a full cycle and require *all*
+  of them to be scrimmed — a scrim that covers only `Failed` leaves the frozen chart bright for
+  most of each cycle, which is the bug this checks for.
   ```bash
-  sleep 12
-  "$ADB" exec-out screencap -p > 14_4_stale.png
+  for i in 1 2 3 4 5 6; do sleep 3; "$ADB" exec-out screencap -p > 14_4_stale_$i.png; done
   ```
-- **EXPECTED:** A heavy scrim covers the frozen frame and a high-contrast **VIDEO NOT LIVE**
+- **EXPECTED:** In **every** frame, a heavy scrim covers the frozen picture and a high-contrast
+  **VIDEO NOT LIVE**
   banner states plainly that the picture is frozen, in words, naming the reason. It does **not**
   auto-dismiss and it is **not** a Snackbar — the condition is still true after any transient
   message would have cleared.
-- **VERIFY:** `14_4_stale.png` shows the banner; the chart behind it is visibly darkened, not at
-  full brightness.
+- **VERIFY:** Every `14_4_stale_*.png` shows the banner, with the chart behind it visibly darkened.
+  Also tap the middle of the picture while the banner is up: nothing must reach the display — the
+  scrim swallows touches as well as light, so a tap cannot land on a chart position that is stale.
 - **PASS/FAIL:** PASS if a glance cannot mistake the screen for live video. FAIL if the frozen
   frame is still bright, or the only cue is small text.
 
@@ -118,11 +123,17 @@ The original defect: the side panel said `Rng −`/`Rng +`, `Swch`; the keypad s
 
 - **SETUP:** Connected or simulating.
 - **STEPS:** Screenshot side-by-side mode, then Video off for the full-screen keypad, and compare.
-- **EXPECTED:** Identical labels, identical icons, identical order in both — sourced from a single
-  `MfdControl` table. The range keys read **Zoom in** / **Zoom out** (what they do), not `Rng ±`.
-  Every key carries an icon.
-- **VERIFY:** The two screenshots show the same seven named controls in the same sequence.
-- **PASS/FAIL:** PASS if the two modes agree exactly. FAIL on any label, glyph or order difference.
+- **EXPECTED:** Identical icons and identical order in both, sourced from a single `MfdControl`
+  table whose declaration order *is* the order. The range keys read **Zoom in** / **Zoom out**
+  (what they do), not `Rng ±`. Every key carries an icon.
+- **VERIFY:** The two screenshots show the same seven named controls in the same sequence:
+  Home, Menu, Zoom in, Zoom out, Back, Pane, Waypoint.
+- **PASS/FAIL:** PASS if the icons and the order agree. FAIL on any glyph or order difference.
+
+> **Not a failure:** in the **compact** height band the side panel drops its text labels and shows
+> icons alone (see 14.1) — deliberately, since shrinking the key instead would breach the touch
+> minimum. The word is still there for a screen reader as the key's description. Compare labels
+> only between two windows in the same band.
 
 ---
 
@@ -152,10 +163,11 @@ The original defect: the side panel said `Rng −`/`Rng +`, `Swch`; the keypad s
 ### 14.9 The primary action explains itself when disabled
 
 - **SETUP:** Manual connect, address field empty, then containing something malformed.
-- **EXPECTED:** With the field empty: *"Enter the display's address to connect."* With a malformed
-  address: the field shows an error state and the reason, plus *"Fix the address above to
-  connect."* The Connect button is never disabled with no explanation.
-- **VERIFY:** Both messages appear in the respective states.
+- **EXPECTED:** With the field empty: *"Enter the display's address to connect."* The Connect
+  button is never disabled with no explanation.
+- **VERIFY:** Use an input the parser actually rejects. A bare token with no colon (`nonsense`) is
+  **accepted** — it is treated as a host and the default ports are applied, which is intended, so
+  it is not a test of this. Something with a malformed port is rejected: `10.0.0.1:notaport`.
 - **PASS/FAIL:** PASS if a disabled Connect always says why.
 
 ---

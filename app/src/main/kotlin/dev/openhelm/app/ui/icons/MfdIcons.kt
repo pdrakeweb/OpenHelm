@@ -1,6 +1,7 @@
 package dev.openhelm.app.ui.icons
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -18,7 +19,12 @@ import androidx.compose.ui.unit.dp
  *
  * Drawing rules, applied consistently so the set reads as one family:
  *
- * - **24×24 grid, 20×20 live area** with 2dp of padding, per Material's icon metrics.
+ * - **24×24 grid.** Most glyphs keep to a 20×20 live area with 2dp of padding, per Material's icon
+ *   metrics. Three deliberately do not: [Wheel] and [PaletteDay] run their spokes and rays out to
+ *   1.6–2dp from the edge, and [VideoOff]'s slash crosses the full frame, because in each case the
+ *   shape *is* the extent — a wheel with short spokes reads as a gear, and a slash that stops
+ *   short reads as a stray mark. Where a glyph breaks the padding it does so symmetrically, so it
+ *   still sits on the same optical centre as the rest of the set.
  * - **2dp stroke weight**, round caps and joins on open strokes so they stay legible when scaled
  *   down; solid fills for the shapes that need to carry at a glance.
  * - **Geometric and bold** rather than delicate — these are read in sunlight, at speed, by someone
@@ -138,7 +144,7 @@ object MfdIcons {
         }
     }
 
-    /** A flag on a staff — drop a waypoint (the display's WPT/MOB key). */
+    /** A flag on a staff — drop a waypoint (the display's WPT key). */
     val Waypoint: ImageVector by lazy {
         icon("Waypoint") {
             path(stroke = black, strokeLineWidth = 2f, strokeLineCap = StrokeCap.Round) {
@@ -153,7 +159,7 @@ object MfdIcons {
         }
     }
 
-    /** A filled disc — the dial's centre confirm. */
+    /** A tick — an action already taken, or one being accepted. Used for Settings' Done. */
     val Confirm: ImageVector by lazy {
         icon("Confirm") {
             path(
@@ -299,16 +305,6 @@ object MfdIcons {
         }
     }
 
-    /** Full-screen controls — hides the video and shows the keypad alone. */
-    val Keypad: ImageVector by lazy {
-        icon("Keypad") {
-            path(fill = black) {
-                square(4f, 4f, 5f); square(13f, 4f, 5f)
-                square(4f, 13f, 5f); square(13f, 13f, 5f)
-            }
-        }
-    }
-
     /** A ship's wheel — OpenHelm's mark, matching the launcher icon. */
     val Wheel: ImageVector by lazy {
         icon("Wheel") {
@@ -323,6 +319,65 @@ object MfdIcons {
                 moveTo(12f, 18f); lineTo(12f, 22.4f)
                 moveTo(1.6f, 12f); lineTo(6f, 12f)
                 moveTo(18f, 12f); lineTo(22.4f, 12f)
+            }
+        }
+    }
+
+    /**
+     * The day palette: a sun with full rays. The brightest of the three glyphs, so the cycle's
+     * position reads from the icon's weight alone before any label is looked at.
+     */
+    val PaletteDay: ImageVector by lazy {
+        icon("PaletteDay") {
+            path(fill = black) {
+                circle(12f, 12f, 4.6f)
+            }
+            path(stroke = black, strokeLineWidth = 2f, strokeLineCap = StrokeCap.Round) {
+                moveTo(12f, 2f); lineTo(12f, 4.6f)
+                moveTo(12f, 19.4f); lineTo(12f, 22f)
+                moveTo(2f, 12f); lineTo(4.6f, 12f)
+                moveTo(19.4f, 12f); lineTo(22f, 12f)
+                moveTo(4.9f, 4.9f); lineTo(6.8f, 6.8f)
+                moveTo(17.2f, 17.2f); lineTo(19.1f, 19.1f)
+                moveTo(19.1f, 4.9f); lineTo(17.2f, 6.8f)
+                moveTo(6.8f, 17.2f); lineTo(4.9f, 19.1f)
+            }
+        }
+    }
+
+    /** The dusk palette: a half sun on the horizon — the sun setting, with the rays it has left. */
+    val PaletteDusk: ImageVector by lazy {
+        icon("PaletteDusk") {
+            // The horizon the sun is sitting on.
+            path(stroke = black, strokeLineWidth = 2f, strokeLineCap = StrokeCap.Round) {
+                moveTo(2.5f, 17f); lineTo(21.5f, 17f)
+            }
+            // Half a disc, flat side down on that line.
+            path(fill = black) {
+                moveTo(7.4f, 17f)
+                arcToRelative(4.6f, 4.6f, 0f, true, true, 9.2f, 0f)
+                close()
+            }
+            path(stroke = black, strokeLineWidth = 2f, strokeLineCap = StrokeCap.Round) {
+                moveTo(12f, 3f); lineTo(12f, 5.4f)
+                moveTo(3.6f, 12.4f); lineTo(5.6f, 12.4f)
+                moveTo(18.4f, 12.4f); lineTo(20.4f, 12.4f)
+                moveTo(5.9f, 6.6f); lineTo(7.5f, 8.2f)
+                moveTo(18.1f, 6.6f); lineTo(16.5f, 8.2f)
+            }
+        }
+    }
+
+    /**
+     * The night palette: a crescent moon, drawn as one disc with a second subtracted via the
+     * even-odd fill rule rather than as an arc pair, so the inner edge stays a true circle at any
+     * size.
+     */
+    val PaletteNight: ImageVector by lazy {
+        icon("PaletteNight") {
+            path(fill = black, pathFillType = PathFillType.EvenOdd) {
+                circle(12f, 12f, 9f)
+                circle(15.8f, 8.8f, 8.4f)
             }
         }
     }
@@ -345,14 +400,5 @@ private fun androidx.compose.ui.graphics.vector.PathBuilder.circle(cx: Float, cy
     moveTo(cx - r, cy)
     arcToRelative(r, r, 0f, true, true, 2 * r, 0f)
     arcToRelative(r, r, 0f, true, true, -2 * r, 0f)
-    close()
-}
-
-/** An axis-aligned square with its top-left at ([x], [y]). */
-private fun androidx.compose.ui.graphics.vector.PathBuilder.square(x: Float, y: Float, side: Float) {
-    moveTo(x, y)
-    lineTo(x + side, y)
-    lineTo(x + side, y + side)
-    lineTo(x, y + side)
     close()
 }

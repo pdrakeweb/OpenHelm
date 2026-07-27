@@ -42,6 +42,7 @@ class EndpointStore @Inject constructor(@ApplicationContext private val context:
 
     private val transportKey = stringPreferencesKey("rtp_transport")
     private val rememberedKey = stringPreferencesKey("remembered_displays")
+    private val paletteKey = stringPreferencesKey("helm_palette")
 
     /**
      * "tcp" selects the simulator-only interleaved transport; anything else means UDP, the only
@@ -53,6 +54,21 @@ class EndpointStore @Inject constructor(@ApplicationContext private val context:
 
     suspend fun saveRtpTransport(value: String) {
         context.dataStore.edit { prefs -> prefs[transportKey] = value }
+    }
+
+    /**
+     * The chosen day/dusk/night palette, or null to follow the system's light/dark setting.
+     *
+     * Persisted, unlike simulation mode: night vision takes twenty minutes to build and seconds to
+     * destroy, so a boat that came alongside after dark must not relaunch into a white screen. The
+     * name is stored rather than the ordinal, so reordering the enum cannot silently change which
+     * palette a user gets.
+     */
+    val palette: Flow<String?> =
+        context.dataStore.data.map { prefs -> prefs[paletteKey] }
+
+    suspend fun savePalette(value: String) {
+        context.dataStore.edit { prefs -> prefs[paletteKey] = value }
     }
 
     /** Every remembered display, most-recently-connected first. */
@@ -91,7 +107,7 @@ class EndpointStore @Inject constructor(@ApplicationContext private val context:
         }
     }
 
-    private companion object {
+    internal companion object {
         const val MAX_REMEMBERED = 12
 
         fun writeList(items: List<RememberedDisplay>): String =
@@ -100,33 +116,76 @@ class EndpointStore @Inject constructor(@ApplicationContext private val context:
         fun readList(raw: String?): List<RememberedDisplay> =
             raw?.lineSequence()?.mapNotNull(::decode)?.toList() ?: emptyList()
 
-        // Tab-separated fields, one record per line. Host and path never contain tabs or newlines,
-        // so this needs no escaping. `name` is appended last, so records written before naming
-        // existed (no 8th field) still decode, with name = null.
+        // Tab-separated fields, one record per line, with the separators escaped.
+        //
+        // The escaping is not decoration. `rtspPath`, `model` and `serial` are copied verbatim out
+        // of mDNS TXT records — bytes any device on the same Wi-Fi can choose — and `name` is typed
+        // by the user, who can paste anything. A field carrying a literal tab silently shifts every
+        // field after it; one carrying a newline ends the record early and starts a forged one. So
+        // a single advertisement could rewrite an existing trusted entry's host, pointing a
+        // remembered "Helm E95" at an address of the advertiser's choosing, or flood the list until
+        // MAX_REMEMBERED evicted the real displays.
+        //
+        // `name` is appended last, so records written before naming existed (no 8th field) still
+        // decode, with name = null.
         fun encode(d: RememberedDisplay): String = listOf(
-            d.endpoint.host,
-            d.endpoint.rtspPort,
-            d.endpoint.rrcPort,
-            d.endpoint.rtspPath,
-            d.endpoint.rrcVersion,
-            d.endpoint.model ?: "",
-            d.endpoint.serial ?: "",
-            d.name ?: "",
+            esc(d.endpoint.host),
+            d.endpoint.rtspPort.toString(),
+            d.endpoint.rrcPort.toString(),
+            esc(d.endpoint.rtspPath),
+            d.endpoint.rrcVersion.toString(),
+            esc(d.endpoint.model ?: ""),
+            esc(d.endpoint.serial ?: ""),
+            esc(d.name ?: ""),
         ).joinToString("\t")
 
         fun decode(line: String): RememberedDisplay? {
             val f = line.split("\t")
             if (f.size < 5) return null
             val endpoint = MfdEndpoint(
-                host = f[0],
+                host = unesc(f[0]),
                 rtspPort = f[1].toIntOrNull() ?: return null,
                 rrcPort = f[2].toIntOrNull() ?: return null,
-                rtspPath = f[3],
+                rtspPath = unesc(f[3]),
                 rrcVersion = f[4].toIntOrNull() ?: return null,
-                model = f.getOrNull(5)?.ifEmpty { null },
-                serial = f.getOrNull(6)?.ifEmpty { null },
+                model = f.getOrNull(5)?.let(::unesc)?.ifEmpty { null },
+                serial = f.getOrNull(6)?.let(::unesc)?.ifEmpty { null },
             )
-            return RememberedDisplay(endpoint, f.getOrNull(7)?.ifEmpty { null })
+            return RememberedDisplay(endpoint, f.getOrNull(7)?.let(::unesc)?.ifEmpty { null })
+        }
+
+        /** Escape the two characters this format is built out of, and the backslash that escapes them. */
+        fun esc(s: String): String = buildString(s.length) {
+            for (c in s) when (c) {
+                '\\' -> append("\\\\")
+                '\t' -> append("\\t")
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                else -> append(c)
+            }
+        }
+
+        fun unesc(s: String): String {
+            if ('\\' !in s) return s // the common case, and every record written before escaping
+            return buildString(s.length) {
+                var i = 0
+                while (i < s.length) {
+                    val c = s[i]
+                    if (c != '\\' || i == s.lastIndex) {
+                        append(c)
+                        i++
+                    } else {
+                        when (val n = s[i + 1]) {
+                            't' -> append('\t')
+                            'n' -> append('\n')
+                            'r' -> append('\r')
+                            '\\' -> append('\\')
+                            else -> append(c).append(n) // not ours; leave it as written
+                        }
+                        i += 2
+                    }
+                }
+            }
         }
     }
 }

@@ -9,6 +9,7 @@ import android.view.Surface
 import dev.openhelm.app.config.EndpointStore
 import dev.openhelm.app.config.RememberedDisplay
 import dev.openhelm.app.discovery.MfdDiscovery
+import dev.openhelm.app.BuildConfig
 import dev.openhelm.app.rrc.ConnectionState
 import dev.openhelm.app.rrc.RrcClient
 import dev.openhelm.app.video.RtpTransport
@@ -104,9 +105,33 @@ class MainViewModel @Inject constructor(
     var transport by mutableStateOf(RtpTransport.UDP)
         private set
 
+    /**
+     * The chosen palette, or null to follow the system's light/dark setting.
+     *
+     * Null is the default and is not the same as [HelmPalette.DAY]: a phone already in dark mode
+     * should not be dragged into a white screen just because nobody has touched the control.
+     */
+    var palette by mutableStateOf<HelmPalette?>(null)
+        private set
+
     init {
+        // Restored on launch. Unlike simulation mode this is deliberately sticky — see
+        // EndpointStore.palette for why relaunching bright after dark is not acceptable.
         viewModelScope.launch {
-            if (store.rtpTransport.first() == "tcp") transport = RtpTransport.TCP_INTERLEAVED
+            val saved = store.palette.first()
+            palette = HelmPalette.entries.firstOrNull { it.name == saved }
+        }
+
+        // TCP-interleaved RTP is a simulator-only workaround — the AVD's NAT drops inbound UDP.
+        // A real display **hangs** when asked to interleave, so this must never be restorable in a
+        // release build. The picker itself is already debug-only, but the preference outlives the
+        // build that wrote it: a debug install that set "tcp", upgraded in place to release, came
+        // back up with interleaving on and no way to see or change it. Read the preference only
+        // where the control that writes it exists.
+        if (BuildConfig.DEBUG) {
+            viewModelScope.launch {
+                if (store.rtpTransport.first() == "tcp") transport = RtpTransport.TCP_INTERLEAVED
+            }
         }
 
         // Persist every endpoint that actually connects, so it becomes a one-tap option next time.
@@ -282,6 +307,23 @@ class MainViewModel @Inject constructor(
         videoEnabled = !videoEnabled
         if (!videoEnabled) player.stop()
         // When re-enabled, the surface re-enters composition and onVideoSurfaceReady restarts it.
+    }
+
+    /**
+     * Advance day → dusk → night → day, starting from whatever is on screen now.
+     *
+     * The caller passes the *effective* palette rather than reading [palette], because before the
+     * first tap that is null and the visible palette comes from the system setting. Taking the
+     * caller's value means the first tap always moves one step from what the user can see, instead
+     * of jumping to a fixed starting point.
+     *
+     * A cycle, not a dialog: this is reachable mid-session and the hand doing the tapping may also
+     * be holding a wheel. Three taps returns to where it started, so there is nothing to undo.
+     */
+    fun cyclePalette(from: HelmPalette) {
+        val next = HelmPalette.entries[(from.ordinal + 1) % HelmPalette.entries.size]
+        palette = next
+        viewModelScope.launch { store.savePalette(next.name) }
     }
 
     fun selectTransport(choice: RtpTransport) {

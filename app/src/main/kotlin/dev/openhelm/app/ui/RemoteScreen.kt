@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -39,11 +41,14 @@ import dev.openhelm.app.video.VideoState
  * whenever video is broken.
  */
 @Composable
-fun RemoteScreen(viewModel: MainViewModel, state: ConnectionState) {
+fun RemoteScreen(viewModel: MainViewModel, state: ConnectionState, palette: HelmPalette) {
     LockLandscape()
     // While a session is live the system bars get out of the way — this is a mounted display, and
     // the gesture pill otherwise sits over the bottom edge of the video.
     ImmersiveWhileConnected()
+    // Held for the whole session, video or keypad. A helm-mounted phone gets few touches of its
+    // own and must not blank mid-passage.
+    KeepScreenOn()
 
     var confirmDisconnect by remember { mutableStateOf(false) }
 
@@ -57,6 +62,7 @@ fun RemoteScreen(viewModel: MainViewModel, state: ConnectionState) {
         RemoteStatusBar(
             viewModel = viewModel,
             state = state,
+            palette = palette,
             onDisconnectRequest = { confirmDisconnect = true },
         )
         if (viewModel.videoEnabled) {
@@ -65,7 +71,7 @@ fun RemoteScreen(viewModel: MainViewModel, state: ConnectionState) {
                     .weight(1f)
                     .fillMaxWidth(),
             ) {
-                VideoPane(viewModel, Modifier.weight(1f).fillMaxHeight())
+                VideoPane(viewModel, palette, Modifier.weight(1f).fillMaxHeight())
                 SidePanel(viewModel)
             }
         } else {
@@ -112,6 +118,7 @@ private fun DisconnectConfirmation(onConfirm: () -> Unit, onDismiss: () -> Unit)
 private fun RemoteStatusBar(
     viewModel: MainViewModel,
     state: ConnectionState,
+    palette: HelmPalette,
     onDisconnectRequest: () -> Unit,
 ) {
     Row(
@@ -122,6 +129,11 @@ private fun RemoteStatusBar(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         ConnectionStatusText(viewModel, state, Modifier.weight(1f))
+
+        // Deliberately the left-most action, the full width of the group away from Disconnect. It
+        // is the one control here someone reaches for in the dark, and a mis-tap must not be able
+        // to land on the button that ends the session.
+        PaletteButton(palette = palette, onCycle = { viewModel.cyclePalette(palette) })
 
         HelmActionButton(
             icon = if (viewModel.videoEnabled) MfdIcons.VideoOff else MfdIcons.VideoOn,
@@ -185,6 +197,12 @@ private fun ConnectionStatusText(
 /**
  * An action on the remote screen: icon and word, sized for a helm. These were bare text links —
  * small, visually identical to each other, and sitting side by side where one ends the session.
+ *
+ * A filled container, not a [TextButton]: the design-review fix these replaced asked for a visible
+ * edge, and a `TextButton` has none, so the first version of this satisfied the letter of the
+ * change and not the point of it. The destructive variant is additionally distinguished by its
+ * container rather than by tint alone, because tint alone is exactly the cue that disappears in
+ * direct sun.
  */
 @Composable
 private fun HelmActionButton(
@@ -193,23 +211,29 @@ private fun HelmActionButton(
     onClick: () -> Unit,
     destructive: Boolean = false,
 ) {
-    val contentColor =
-        if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    val colors = if (destructive) {
+        ButtonDefaults.filledTonalButtonColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        )
+    } else {
+        ButtonDefaults.filledTonalButtonColors()
+    }
 
-    TextButton(
+    FilledTonalButton(
         onClick = onClick,
+        colors = colors,
         modifier = Modifier
             .height(MinHelmTarget)
-            .width(140.dp),
+            .width(150.dp),
     ) {
         Icon(
             imageVector = icon,
-            contentDescription = null,
-            tint = contentColor,
+            contentDescription = null, // the adjacent label already names the action
             modifier = Modifier.size(20.dp),
         )
         Spacer(Modifier.width(8.dp))
-        Text(label, color = contentColor, maxLines = 1)
+        Text(label, maxLines = 1)
     }
 }
 
@@ -228,6 +252,34 @@ internal fun friendlyReason(reason: String): String {
         "timed out" in r || "timeout" in r -> "the display stopped responding"
         "refused" in r -> "the display refused the connection"
         "unreachable" in r -> "the display is unreachable"
-        else -> reason
+
+        // An unrecognised failure is still shown — swallowing it would hide a novel fault — but it
+        // is sanitised first. This string ends up in the safety banner over a frozen chart, and it
+        // originates in bytes from the network: an RTSP reason-phrase or a server error string.
+        // Unsanitised, a hostile or merely broken display could put newlines and arbitrary text
+        // into the one part of the UI whose whole job is to be believed.
+        else -> sanitiseReason(reason)
     }
 }
+
+/**
+ * Flatten a server-supplied string to a single short line of printable characters.
+ *
+ * Control characters (including the newlines that would let injected text pose as a second,
+ * app-authored sentence) become spaces, runs of whitespace collapse, and the result is clipped —
+ * a banner is not a log viewer, and an unbounded string would push the real message off screen.
+ */
+private fun sanitiseReason(reason: String): String {
+    val flattened = reason.asSequence()
+        .map { if (it.isISOControl()) ' ' else it }
+        .joinToString("")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+    return when {
+        flattened.isEmpty() -> "the connection failed"
+        flattened.length > MAX_REASON_CHARS -> flattened.take(MAX_REASON_CHARS).trimEnd() + "…"
+        else -> flattened
+    }
+}
+
+private const val MAX_REASON_CHARS = 120

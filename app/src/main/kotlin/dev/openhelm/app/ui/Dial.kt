@@ -19,6 +19,13 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.TextStyle
@@ -30,9 +37,10 @@ import android.view.HapticFeedbackConstants
 import dev.openhelm.protocol.MfdKey
 import kotlin.math.atan2
 import kotlin.math.hypot
+import kotlin.math.min
 
 /** Regions of the dial, for pressed-state drawing. */
-private enum class DialRegion { NONE, OK, UP, DOWN, LEFT, RIGHT, RING }
+internal enum class DialRegion { NONE, OK, UP, DOWN, LEFT, RIGHT, RING }
 
 /**
  * The composite dial: OK in the hub, four direction sectors around it, and a rotary outer ring.
@@ -75,36 +83,59 @@ fun Dial(
         fontWeight = FontWeight.SemiBold,
     )
 
+    // A press-and-release pair, for the assistive path only. A screen-reader user cannot express
+    // "hold", and a DOWN left open would auto-repeat on the display until something else closed it.
+    fun tap(key: MfdKey) {
+        onKeyDown(key)
+        onKeyUp(key)
+    }
+
     Box(
         modifier = modifier
             .size(dialSize)
+            // Without this the dial was, to the framework, an unlabelled Box with a raw
+            // pointerInput: invisible to TalkBack, and absent from a uiautomator dump — which is
+            // why the touch-target sweep in tests/14 could not see the largest control on the
+            // panel. The five commands are exposed as custom actions rather than as five child
+            // nodes, because they are regions of one drawn shape and have no separate bounds to
+            // report; zoom is offered here too, since rotating a ring is not a gesture an
+            // assistive user can perform at all.
+            .semantics {
+                role = Role.Button
+                contentDescription = "Cursor dial"
+                onClick(label = "Confirm") { tap(MfdKey.OK); true }
+                customActions = listOf(
+                    CustomAccessibilityAction("Move the cursor up") { tap(MfdKey.UP); true },
+                    CustomAccessibilityAction("Move the cursor down") { tap(MfdKey.DOWN); true },
+                    CustomAccessibilityAction("Move the cursor left") { tap(MfdKey.LEFT); true },
+                    CustomAccessibilityAction("Move the cursor right") { tap(MfdKey.RIGHT); true },
+                    CustomAccessibilityAction("Zoom in") { onRotate(1, 1); true },
+                    CustomAccessibilityAction("Zoom out") { onRotate(-1, -1); true },
+                )
+            }
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown()
                     down.consume()
+                    // Radius from the SHORTER axis, centre from the true centre — identical to
+                    // the Canvas below. These used to disagree (`Offset(r, r)` when drawing,
+                    // `Offset(w/2, h/2)` when hit-testing), which is harmless while the box is
+                    // square and a real hazard the moment it is not: at the compact band's
+                    // 140×156 the drawn dial sat 8dp above the tappable one, so a tap on the
+                    // visible OK hub registered as UP and sent a cursor command.
                     val center = Offset(this.size.width / 2f, this.size.height / 2f)
-                    val radius = this.size.width / 2f
+                    val radius = min(this.size.width, this.size.height) / 2f
                     val rel = down.position - center
                     val dist = hypot(rel.x, rel.y)
 
                     when {
-                        dist <= radius * OK_RADIUS -> {
-                            pressed = DialRegion.OK
-                            view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                            onKeyDown(MfdKey.OK)
-                            waitAllUp()
-                            pressed = DialRegion.NONE
-                            onKeyUp(MfdKey.OK)
+                        dist <= radius * OK_RADIUS -> pressAndHold(MfdKey.OK, DialRegion.OK, view, onKeyDown, onKeyUp) {
+                            pressed = it
                         }
 
                         dist <= radius * SECTOR_RADIUS -> {
                             val (region, key) = directionAt(rel)
-                            pressed = region
-                            view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                            onKeyDown(key)
-                            waitAllUp()
-                            pressed = DialRegion.NONE
-                            onKeyUp(key)
+                            pressAndHold(key, region, view, onKeyDown, onKeyUp) { pressed = it }
                         }
 
                         else -> {
@@ -146,8 +177,9 @@ fun Dial(
             },
     ) {
         Canvas(Modifier.size(dialSize)) {
-            val r = this.size.width / 2f
-            val c = Offset(r, r)
+            // Must match the hit-test above exactly — see the comment there.
+            val r = min(this.size.width, this.size.height) / 2f
+            val c = Offset(this.size.width / 2f, this.size.height / 2f)
 
             // Outer ring, with tick marks so rotation reads as rotation.
             drawCircle(
@@ -247,6 +279,37 @@ fun Dial(
     }
 }
 
+/**
+ * Hold [key] down for as long as the finger stays on the dial, and release it **no matter how the
+ * gesture ends**.
+ *
+ * The `finally` is the whole point and is not defensive padding. `awaitEachGesture` abandons its
+ * block with a cancellation when the pointer stream is cancelled — a swipe from the screen edge to
+ * pull the system bars back, the composable leaving composition mid-press, an activity recreation
+ * for a configuration this activity does not declare. Without the `finally` the release is simply
+ * skipped, and because the display implements auto-repeat itself, a key it believes is still held
+ * repeats **forever**: the cursor runs away and the chart pans off, with no further input from the
+ * user. This mirrors [MfdKeyButton], which has always guarded it; the dial did not.
+ */
+private suspend inline fun androidx.compose.ui.input.pointer.AwaitPointerEventScope.pressAndHold(
+    key: MfdKey,
+    region: DialRegion,
+    view: android.view.View,
+    onKeyDown: (MfdKey) -> Unit,
+    onKeyUp: (MfdKey) -> Unit,
+    setPressed: (DialRegion) -> Unit,
+) {
+    setPressed(region)
+    view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+    onKeyDown(key)
+    try {
+        waitAllUp()
+    } finally {
+        setPressed(DialRegion.NONE)
+        onKeyUp(key)
+    }
+}
+
 /** Suspend until every pointer is up (or the gesture is cancelled). */
 private suspend fun androidx.compose.ui.input.pointer.AwaitPointerEventScope.waitAllUp() {
     while (true) {
@@ -256,7 +319,7 @@ private suspend fun androidx.compose.ui.input.pointer.AwaitPointerEventScope.wai
     }
 }
 
-private fun directionAt(rel: Offset): Pair<DialRegion, MfdKey> {
+internal fun directionAt(rel: Offset): Pair<DialRegion, MfdKey> {
     val angle = Math.toDegrees(atan2(rel.y, rel.x).toDouble())
     return when {
         angle >= -45 && angle < 45 -> DialRegion.RIGHT to MfdKey.RIGHT
@@ -270,13 +333,21 @@ private fun directionAt(rel: Offset): Pair<DialRegion, MfdKey> {
  * The dial never renders smaller than this: at exactly this size the OK hub is a full
  * [MinHelmTarget] across (`156 × 0.36 ≈ 56`).
  *
- * **One honest caveat.** The hub and the ring clear the helm minimum in every dimension; the four
- * direction sectors clear it tangentially (~80dp of arc) but their *radial* band is narrower than
- * 48dp at this size. Widening it further would either swallow the hub or make the whole control
- * too tall for a phone in landscape. It is an acceptable trade because a direction sector is aimed
- * outward from a large centre rather than pinpointed, and because the four arrow keys on the
- * full-screen keypad provide the same four commands at full size — but it is a trade, not
- * compliance, and it should be re-measured on real hardware with gloves.
+ * **Honest measurements at this size** (r = 78dp), against the project's own [MinHelmTarget] of
+ * 56dp — not Material's 48dp, which this app deliberately exceeds:
+ *
+ * | Region | Extent | Clears 56dp? |
+ * |---|---|---|
+ * | OK hub | 56dp across | yes, exactly |
+ * | Direction sector | 33dp radial × 44–96dp tangential | **no** — radially |
+ * | Rotary ring | 17dp radial band | **no** |
+ *
+ * So two of the three regions are under the bar, and saying otherwise would be the kind of claim
+ * this file exists to stop making. The trade is deliberate: widening either would swallow the hub
+ * or make the control too tall for a phone in landscape, a sector is aimed outward from a large
+ * centre rather than pinpointed, and every one of these commands is also on the full-screen keypad
+ * at full size. It remains a trade, not compliance, and it wants re-measuring on real hardware
+ * with wet or gloved hands.
  */
 val MinDialSize: Dp = 156.dp
 

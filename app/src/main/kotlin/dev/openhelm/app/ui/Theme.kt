@@ -11,11 +11,24 @@ import androidx.compose.ui.graphics.Color
  *
  * Chartplotters have had day/dusk/night palettes for decades because the requirement is real: the
  * same screen is read in direct sun and then, hours later, by someone whose night vision is the
- * difference between seeing an unlit hazard and not. The scheme is structured as a swap now — even
- * though only [DUSK] is wired to the UI today — so adding the other two is a palette change rather
- * than a refactor.
+ * difference between seeing an unlit hazard and not.
+ *
+ * All three are reachable from the status bar while a session is live — the moment they are needed
+ * is the moment when leaving the remote to hunt through settings is least acceptable. Declaration
+ * order is the cycle order that control steps through, brightest first, so it is not free to
+ * change.
  */
 enum class HelmPalette { DAY, DUSK, NIGHT }
+
+/**
+ * What to show before the user has ever chosen: the system's own light/dark setting.
+ *
+ * Dark maps to [DUSK] rather than [NIGHT]. Android's dark mode means "it is dark here"; [NIGHT] is
+ * the far stronger claim that red-shifted, heavily dimmed output is wanted, which costs real
+ * legibility and should only ever be entered deliberately.
+ */
+fun defaultPaletteFor(systemInDarkTheme: Boolean): HelmPalette =
+    if (systemInDarkTheme) HelmPalette.DUSK else HelmPalette.DAY
 
 /**
  * Shared container tones.
