@@ -492,3 +492,39 @@ covered rather than pushed down.
   the raw window background showed through.
 - **VERIFY:** Sample a pixel in the strip — in bright it must read as white, not black.
 - **PASS/FAIL:** PASS if the strip matches the page in every palette.
+
+---
+
+### 15.28 The scan ring is the retry control
+
+- **SETUP:** No display reachable. Launch and let the scan run its window out.
+- **EXPECTED:** The ring stops sweeping, fills in to the accent colour and reads **Scan again** —
+  the ring *is* the button. Below it, **No MFD found**, and under that the line about boat networks
+  blocking discovery. Tapping the ring starts another scan.
+- **WHY:** The ring is already the thing being looked at and is already 132dp across, far the
+  easiest target on the screen, which matters when the answer to "no display found" is almost
+  always "try again". The separate smaller button that used to sit below it competed with the ring
+  for attention while being harder to hit. The outcome moved out of the ring because it is a
+  sentence that changes, and the middle of a circle is the one place a longer line cannot go.
+- **VERIFY:** The ring reports as a button with the description *Scan again for displays* in a UI
+  dump, and measures well over the 56dp minimum.
+- **PASS/FAIL:** PASS if the ring is tappable and the outcome reads below it. FAIL if a scan cannot
+  be restarted from this screen.
+
+---
+
+### 15.29 Status-bar spacing separates the readout from the controls
+
+Two documented steps, and the ratio is the point rather than either number:
+
+| Gap | Value | Between |
+|---|---|---|
+| `StatusBarItemGap` | **8dp** | Two adjacent controls — palette, mode switch, Disconnect/End simulation. Material's own minimum between neighbouring buttons, and enough that two filled containers do not read as one wide control. |
+| `StatusBarGroupGap` | **16dp** | The readout and the control group beside it. Twice the item gap: the readout reports where the buttons act, and spacing is what says so when nothing else does. |
+
+- **SETUP:** Simulation, Mirror mode, with an action showing in the field.
+- **EXPECTED:** The bordered action field is clearly separated from the round palette button, and
+  the three controls read as one group. At 8dp the field's border sat hard against the button and
+  the two edges read as a single compound widget.
+- **PASS/FAIL:** PASS if the readout reads as separate from the controls without a divider or a
+  second colour doing the work.

@@ -111,15 +111,16 @@ private fun SimulationStatusBar(viewModel: MainViewModel, palette: HelmPalette) 
             repeats = viewModel.simActionRepeats,
             modifier = Modifier.weight(1f),
         )
+        Spacer(Modifier.width(StatusBarGroupGap))
         // Same position and behaviour as the real status bar — simulation is only useful as a
         // preview if the controls it shows are the ones that ship.
         PaletteButton(palette = palette, onCycle = { viewModel.cyclePalette(palette) })
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(StatusBarItemGap))
         MirrorModeSwitch(
             mirroring = viewModel.mirroring,
             onSelect = viewModel::selectMirroring,
         )
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(StatusBarItemGap))
         NavActionButton(
             icon = MfdIcons.Disconnect,
             label = "End simulation",

@@ -6,6 +6,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,13 +19,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -35,6 +36,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -121,9 +127,19 @@ fun ConnectScreen(viewModel: MainViewModel) {
 }
 
 /**
- * The dominant element on the screen: a slowly sweeping ring and one word. When the sweep has run
- * its window without finding anything it settles into a plain statement plus a retry, so the
- * screen never spins forever pretending something is still happening.
+ * The dominant element on the screen.
+ *
+ * While a scan is running it is a slowly sweeping ring with one word inside it. When the sweep has
+ * run its window without finding anything, **the ring becomes the button**: it fills in, says
+ * *Scan again*, and the outcome moves underneath it.
+ *
+ * That is the arrangement rather than a separate retry button below because the ring is already the
+ * thing being looked at and is already 132dp across — far and away the easiest target on the
+ * screen, which matters when the answer to "no display found" is almost always "try again". A
+ * second, smaller button below it competed with the ring for attention while being harder to hit.
+ *
+ * The outcome sits under the ring rather than inside it: it is a sentence that changes, and the
+ * middle of a circle is the one place on the screen where a longer line has nowhere to go.
  */
 @Composable
 private fun ScanningIndicator(
@@ -135,17 +151,39 @@ private fun ScanningIndicator(
     val accent = MaterialTheme.colorScheme.primary
     val track = MaterialTheme.colorScheme.surfaceVariant
 
-    Box(contentAlignment = Alignment.Center) {
-        val transition = rememberInfiniteTransition(label = "scan")
-        val angle by transition.animateFloat(
-            initialValue = 0f,
-            targetValue = 360f,
-            animationSpec = infiniteRepeatable(tween(1600), RepeatMode.Restart),
-            label = "sweep",
-        )
+    val transition = rememberInfiniteTransition(label = "scan")
+    val angle by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(1600), RepeatMode.Restart),
+        label = "sweep",
+    )
 
-        Canvas(Modifier.size(132.dp)) {
-            drawCircle(color = track, style = Stroke(width = 3.dp.toPx()))
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(ScanRingSize)
+            .then(
+                if (active) {
+                    Modifier
+                } else {
+                    Modifier
+                        .clip(CircleShape)
+                        .clickable(onClick = onScan)
+                        .semantics {
+                            role = Role.Button
+                            contentDescription = "Scan again for displays"
+                        }
+                },
+            ),
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            // Idle, the whole ring takes the accent and thickens: it has to read as something to
+            // press, not as the leftover track of an animation that stopped.
+            drawCircle(
+                color = if (active) track else accent,
+                style = Stroke(width = (if (active) 3.dp else 4.dp).toPx()),
+            )
             if (active) {
                 rotate(angle) {
                     drawArc(
@@ -162,30 +200,40 @@ private fun ScanningIndicator(
         }
 
         Text(
-            text = when {
-                active -> "Scanning"
-                idle -> "Disconnected"
-                timedOut -> "No MFD found"
-                else -> "Ready"
-            },
+            text = if (active) "Scanning" else "Scan again",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Medium,
+            color = if (active) MaterialTheme.colorScheme.onBackground else accent,
         )
     }
 
-    if (!active) {
+    val outcome = when {
+        active -> null
+        idle -> "Disconnected"
+        timedOut -> "No MFD found"
+        else -> null
+    }
+
+    if (outcome != null) {
         Spacer(Modifier.height(20.dp))
+        Text(
+            outcome,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Medium,
+        )
         if (timedOut && !idle) {
+            Spacer(Modifier.height(8.dp))
             Text(
                 "Some boat networks block automatic discovery.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.height(8.dp))
         }
-        OutlinedButton(onClick = onScan) { Text("Scan again") }
     }
 }
+
+/** Large enough to be the obvious target on the screen, and to hold "Scan again" on one line. */
+private val ScanRingSize = 132.dp
 
 /** Recent displays as plain name buttons — no address, no ports, nothing to decode at a glance. */
 @Composable

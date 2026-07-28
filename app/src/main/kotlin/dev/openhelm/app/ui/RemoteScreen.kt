@@ -138,9 +138,10 @@ private fun RemoteStatusBar(
             .height(StatusBarHeight)
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(StatusBarItemGap),
     ) {
         ConnectionStatusText(viewModel, state, Modifier.weight(1f))
+        Spacer(Modifier.width(StatusBarGroupGap - StatusBarItemGap))
 
         // Deliberately the left-most action, the full width of the group away from Disconnect. It
         // is the one control here someone reaches for in the dark, and a mis-tap must not be able
