@@ -474,3 +474,21 @@ covered rather than pushed down.
   expected to go away.
 - **PASS/FAIL:** PASS if the bars return to hidden after every focus change and after a swipe. FAIL
   if they ever stay up indefinitely.
+
+---
+
+### 15.27 The theme reaches the cutout inset
+
+- **SETUP:** Any screen, in **bright** — the palette where the fault is unmissable.
+- **STEPS:** On an emulator without a notch, one can be borrowed:
+  ```bash
+  "$ADB" shell cmd overlay enable com.android.internal.display.cutout.emulation.tall
+  # ... check ...
+  "$ADB" shell cmd overlay disable com.android.internal.display.cutout.emulation.tall
+  ```
+- **EXPECTED:** The strip beside the camera takes the palette's page colour, like the rest of the
+  window. It used to be a black band down one edge of a white or red interface: the safe-drawing
+  inset was applied to the `Surface` itself, so the coloured area stopped short of the cutout and
+  the raw window background showed through.
+- **VERIFY:** Sample a pixel in the strip — in bright it must read as white, not black.
+- **PASS/FAIL:** PASS if the strip matches the page in every palette.

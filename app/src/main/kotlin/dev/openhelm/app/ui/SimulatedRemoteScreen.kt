@@ -3,6 +3,7 @@ package dev.openhelm.app.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -266,35 +267,47 @@ private const val FRAME_INTERVAL_NANOS = 1_000_000_000L / 15L
 /**
  * Names the last thing the user did.
  *
- * Simulation's chart cannot react, so a control that works and a control that is wired to nothing
- * look identical — the whole mode is otherwise unfalsifiable. This is the substitute for the
- * display responding: press Zoom out and the field says "Zoom out".
+ * Simulation's chart cannot react, so a control that works and a control wired to nothing look
+ * identical — the whole mode is otherwise unfalsifiable. This is the substitute for the display
+ * responding: press Zoom out and the field says "Zoom out".
+ *
+ * The empty state is an empty bordered box rather than a line of instructions. The border says
+ * "something appears here" as well as a sentence does, and it says it once instead of occupying the
+ * width permanently with text that stops being true after the first press.
  *
  * Repeats collapse into a count rather than scrolling, because holding a direction key produces one
  * press and it is the repetition that is interesting, not a list of identical lines.
  */
 @Composable
 private fun SimActionField(action: String?, repeats: Int, modifier: Modifier = Modifier) {
-    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            text = action ?: "Press anything — actions appear here",
-            style = MaterialTheme.typography.bodyMedium,
-            fontFamily = FontFamily.Monospace,
-            color = if (action == null) {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            } else {
-                MaterialTheme.colorScheme.onSurface
-            },
-            maxLines = 1,
-        )
-        if (action != null && repeats > 1) {
-            Spacer(Modifier.width(6.dp))
+    Row(
+        modifier
+            .height(MinHelmTarget - 12.dp)
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outline,
+                shape = MaterialTheme.shapes.small,
+            )
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (action != null) {
             Text(
-                "×$repeats",
+                text = action,
                 style = MaterialTheme.typography.bodyMedium,
                 fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.tertiary,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
             )
+            if (repeats > 1) {
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    "×$repeats",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
+            }
         }
     }
 }

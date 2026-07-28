@@ -3,6 +3,7 @@ package dev.openhelm.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.MaterialTheme
@@ -36,11 +37,17 @@ class MainActivity : ComponentActivity() {
             val palette = viewModel.palette ?: DefaultPalette
 
             OpenHelmTheme(palette = palette) {
+                // The Surface fills the whole window and the inset is applied *inside* it. With the
+                // padding on the Surface itself, the strip beside the camera cutout fell outside
+                // the coloured area and showed the raw window background — a black band down one
+                // edge of a bright or red interface.
                 Surface(
-                    modifier = Modifier.fillMaxSize().safeDrawingPadding(),
+                    modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    AppRoot(viewModel, palette)
+                    Box(Modifier.fillMaxSize().safeDrawingPadding()) {
+                        AppRoot(viewModel, palette)
+                    }
                 }
             }
         }
