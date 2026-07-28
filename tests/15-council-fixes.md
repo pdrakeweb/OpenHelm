@@ -444,3 +444,33 @@ nothing look identical.
   and drawing over live video would be decorating the one surface that has to stay trustworthy.
 - **PASS/FAIL:** PASS if every gesture and key press is named and marked. FAIL if any control
   produces nothing at all, which is indistinguishable from being unwired.
+
+---
+
+### 15.26 The system bars stay hidden across focus changes
+
+Reported from the field: the status bar sitting over the remote's own status row, making it
+unreadable. Transient bars are an overlay and contribute no layout inset, so the row underneath is
+covered rather than pushed down.
+
+- **SETUP:** Mirror mode, connected or simulating.
+- **STEPS, the persistent case:** Leave the app and come back by every route available — the
+  notification shade, the recents switcher, another app, a phone call, a permission dialog.
+- **EXPECTED:** The bars are hidden again each time the app regains focus. The hide is a request,
+  not a mode the window stays in: anything that takes focus can put the bars back, and applying it
+  once at composition is not enough.
+- **STEPS, the transient case:**
+  ```bash
+  "$ADB" shell input swipe 1280 2 1280 400 300
+  "$ADB" exec-out screencap -p > bars_now.png     # bars visible, overlaying the row
+  sleep 7
+  "$ADB" exec-out screencap -p > bars_later.png   # bars gone
+  ```
+- **EXPECTED:** A swipe from the top edge reveals the bars — that is deliberate, and the escape
+  hatch is not to be taken away — and the platform hides them again within a few seconds. On the
+  emulator this takes about seven.
+- **KNOWN:** While the bars are up they overlap the remote's status row. Insetting permanently would
+  cost the height immersive mode exists to reclaim, so the row is left where it is and the bars are
+  expected to go away.
+- **PASS/FAIL:** PASS if the bars return to hidden after every focus change and after a swipe. FAIL
+  if they ever stay up indefinitely.

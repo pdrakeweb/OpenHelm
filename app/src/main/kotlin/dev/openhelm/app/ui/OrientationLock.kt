@@ -2,6 +2,7 @@ package dev.openhelm.app.ui
 
 import android.app.Activity
 import android.content.pm.ActivityInfo
+import android.view.ViewTreeObserver
 import android.view.WindowManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -65,21 +66,46 @@ fun KeepScreenOn() {
  * bottom edge of the video, and the status bar steals height that the 5:3 picture needs. Bars stay
  * swipe-reachable (`BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`) rather than being locked away, so
  * nothing traps the user.
+ *
+ * **Hiding once is not enough**, which is the bug this used to have. The request is not a mode the
+ * window stays in: anything that takes window focus puts the bars back and leaves them there — the
+ * notification shade, the recents switcher, a permission dialog, and, the case this was reported
+ * from, a phone call. The bars then sit on top of the remote's own status row, because transient
+ * bars are an overlay and contribute no layout inset, so the row underneath is unreadable rather
+ * than merely displaced.
+ *
+ * So the hide is re-applied every time the window regains focus. Focus is the right trigger and a
+ * swipe is not: a swipe is the user asking for the bars, and re-hiding on that would take away the
+ * escape hatch this deliberately leaves open.
  */
 @Composable
 fun ImmersiveWhileConnected() {
     val view = LocalView.current
     val context = LocalContext.current
-    DisposableEffect(Unit) {
+    DisposableEffect(view, context) {
         val window = (context as? Activity)?.window
         if (window == null) {
             onDispose { }
         } else {
             val controller = WindowInsetsControllerCompat(window, view)
-            controller.systemBarsBehavior =
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            controller.hide(WindowInsetsCompat.Type.systemBars())
-            onDispose { controller.show(WindowInsetsCompat.Type.systemBars()) }
+
+            fun hideBars() {
+                controller.systemBarsBehavior =
+                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                controller.hide(WindowInsetsCompat.Type.systemBars())
+            }
+
+            hideBars()
+
+            val onFocus = ViewTreeObserver.OnWindowFocusChangeListener { hasFocus ->
+                if (hasFocus) hideBars()
+            }
+            view.viewTreeObserver.addOnWindowFocusChangeListener(onFocus)
+
+            onDispose {
+                view.viewTreeObserver.removeOnWindowFocusChangeListener(onFocus)
+                controller.show(WindowInsetsCompat.Type.systemBars())
+            }
         }
     }
 }
