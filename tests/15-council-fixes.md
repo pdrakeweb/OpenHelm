@@ -528,3 +528,39 @@ Two documented steps, and the ratio is the point rather than either number:
   the two edges read as a single compound widget.
 - **PASS/FAIL:** PASS if the readout reads as separate from the controls without a divider or a
   second colour doing the work.
+
+---
+
+### 15.30 The app only reaches for the local network
+
+Two independent restrictions, and the second is not redundant with the first.
+
+**Bound to Wi-Fi.** Every socket — control, RTSP and the RTP pair — is opened on the Wi-Fi network
+and refuses to fall back to cellular.
+
+- **STEPS:** Turn Wi-Fi off with mobile data on, and try to connect.
+- **EXPECTED:** It fails with a Wi-Fi message rather than timing out over cellular. Nothing is sent
+  on the mobile interface at any point.
+
+**Restricted to local addresses.** Binding pins traffic to the *interface*, not to the *subnet*. If
+the boat Wi-Fi has an internet path, an address that resolves publicly is reachable over it — so
+anything the app contacts unprompted must also be checked.
+
+- **EXPECTED:** Discovery publishes only numeric addresses in the private (`10/8`, `172.16/12`,
+  `192.168/16`), link-local (`169.254/16`, `fe80::/10`), unique-local (`fc00::/7`) and loopback
+  ranges. A service advertising anything else is dropped before it is published, connected to or
+  remembered. The launch-time probe of saved displays applies the same filter.
+- **WHY IT MATTERS:** The host of a discovered display comes from an mDNS response, and anything on
+  the same Wi-Fi can answer with whatever address it likes. That address is remembered, and saved
+  displays are probed automatically at every launch — so without this, one advertisement from a
+  stranger's device on a marina network buys an unattended connection attempt to an arbitrary
+  internet host, every time the app opens.
+- **VERIFY:** Advertise `_rtsp._tcp` and `_rym_rrc._tcp` with the MFD TXT keys from a host on the
+  LAN whose advertised address is public (e.g. `8.8.8.8`). It must never appear on the connect
+  screen. The ranges themselves are covered exhaustively by `LocalAddressesTest`, including
+  octal-looking octets and IPv4-mapped IPv6.
+- **NOT COVERED, deliberately:** an address typed by hand. That is explicit intent, and someone with
+  a routed or VPN'd setup has a real reason to reach a display off the local subnet. The guard stops
+  the app acting on its own, not the user.
+- **PASS/FAIL:** PASS if nothing non-local is ever discovered, auto-probed or auto-connected. FAIL
+  on any unattended connection attempt to an address outside those ranges.

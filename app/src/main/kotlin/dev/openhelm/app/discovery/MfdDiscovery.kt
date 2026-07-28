@@ -5,6 +5,7 @@ import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
 import dev.openhelm.app.di.AppScope
+import dev.openhelm.app.net.LocalAddresses
 import dev.openhelm.protocol.Discovery
 import dev.openhelm.protocol.MfdEndpoint
 import dev.openhelm.protocol.parseRrcVersion
@@ -143,6 +144,10 @@ class MfdDiscovery @Inject constructor(
 
     private fun merge(resolved: NsdServiceInfo) {
         val host = resolved.host?.hostAddress ?: return
+        // An mDNS response is whatever a device on this Wi-Fi chose to say. Anything claiming an
+        // address off the local network is dropped here, before it can be published, connected to
+        // or remembered — see LocalAddresses for why that path is worth closing.
+        if (!LocalAddresses.isLocal(host)) return
         val txt = resolved.attributes.mapValues { (_, v) -> v?.toString(Charsets.UTF_8) }
 
         synchronized(this) {

@@ -48,6 +48,16 @@ Displays are found over mDNS and saved on first connection, where they can be gi
 becomes "Helm". Launching tries the saved displays first, then scans. An address can also be typed
 in, which is the reliable path on boat Wi-Fi that blocks multicast.
 
+Everything the app reaches for **on its own initiative** is restricted to the local network. All
+sockets are bound to the Wi-Fi interface before they open, and refuse to fall back to cellular; on
+top of that, discovery results and the launch-time probe of saved displays accept only numeric
+addresses in the private, link-local and loopback ranges. That second check is not redundant with
+the first: binding pins traffic to the interface, not to the subnet, and the host of a discovered
+display comes from an mDNS response, which anything on the same Wi-Fi can answer. Without it, one
+advertisement from a stranger's device on a marina network would be remembered and then contacted
+at every launch. Typing an address by hand is exempt — that is explicit intent, and a routed or
+VPN'd setup is a real thing.
+
 Simulation mode runs the whole interface against a chart scene generated on the device — data bar,
 coastline, soundings, a route with a vessel on it and a cursor — so the app can be explored, and the
 panel and palettes judged against a realistic picture, with no display present. It lasts for the

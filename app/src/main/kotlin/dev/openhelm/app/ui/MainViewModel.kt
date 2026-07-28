@@ -10,6 +10,7 @@ import android.view.Surface
 import dev.openhelm.app.config.EndpointStore
 import dev.openhelm.app.config.RememberedDisplay
 import dev.openhelm.app.discovery.MfdDiscovery
+import dev.openhelm.app.net.LocalAddresses
 import dev.openhelm.app.BuildConfig
 import dev.openhelm.app.rrc.ConnectionState
 import dev.openhelm.app.rrc.RrcClient
@@ -221,7 +222,13 @@ class MainViewModel @Inject constructor(
         if (autoConnectSuppressed) return
         probeJob?.cancel()
         probeJob = viewModelScope.launch {
+            // Only local addresses are probed unprompted. A remembered display can have come from
+            // an mDNS advertisement, and this runs at every launch with no user action — so an
+            // entry pointing off the network would be an unattended connection attempt to an
+            // arbitrary host. Such an entry is still offered as a button on the connect screen;
+            // tapping it is a decision, this is not.
             val recents = store.rememberedDisplays.first()
+                .filter { LocalAddresses.isLocal(it.endpoint.host) }
             if (recents.isNotEmpty() && connection.value is ConnectionState.Idle) {
                 _probingRecents.value = true
                 try {
