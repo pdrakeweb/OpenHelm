@@ -5,6 +5,8 @@ import dev.openhelm.protocol.video.parseSdpVideoTrack
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 import java.net.Socket
 
 class RtspException(message: String) : IOException(message)
@@ -18,13 +20,20 @@ class RtspException(message: String) : IOException(message)
  * packet, indefinitely — so interleaving exists here *only* to let the simulator exercise the
  * decode path on an Android emulator, whose NAT cannot pass inbound UDP.
  *
+ * Takes streams rather than owning a socket, so the response parsing and the interleaved demux —
+ * wire logic with plenty of edge cases — are testable on the JVM against canned bytes, the same
+ * way the protocol module's parsers are. The [Socket] constructor is the production convenience;
+ * the caller owns the socket's timeouts and its closing.
+ *
  * Not thread-safe; drive it from the one connection coroutine. In interleaved mode the caller owns
  * the read loop via [readInterleaved] after PLAY, and keepalive responses are consumed there.
  */
-class RtspSession(private val socket: Socket, private val url: String) {
+class RtspSession(input: InputStream, output: OutputStream, private val url: String) {
 
-    private val input = BufferedInputStream(socket.getInputStream())
-    private val output = BufferedOutputStream(socket.getOutputStream())
+    constructor(socket: Socket, url: String) : this(socket.getInputStream(), socket.getOutputStream(), url)
+
+    private val input = BufferedInputStream(input)
+    private val output = BufferedOutputStream(output)
     private var cseq = 1
     private var contentBase: String = url
     private var interleavedStarted = false
@@ -73,15 +82,31 @@ class RtspSession(private val socket: Socket, private val url: String) {
     }
 
     /**
+     * The request method used to refresh the session timer. `GET_PARAMETER` is the conventional
+     * choice and what the known units accept; `OPTIONS` is the universal fallback every RTSP
+     * server must implement.
+     */
+    private var keepaliveMethod = "GET_PARAMETER"
+
+    /**
      * Refresh the server's session timer. In interleaved mode the response is consumed by
      * [readInterleaved]'s loop instead of here.
+     *
+     * A non-200 answer is **not** fatal: RFC 2326 refreshes the timer on any request carrying the
+     * Session header, so a server that answers `501 Not Implemented` has still been kept alive —
+     * treating that as an error would tear the stream down rhythmically, once per timeout window,
+     * which is a miserable failure to diagnose from a boat. The method is switched to OPTIONS for
+     * subsequent keepalives instead.
      */
     fun keepalive() {
+        val method = keepaliveMethod
         if (interleavedStarted) {
-            sendRequest("GET_PARAMETER", contentBase, emptyArray())
-        } else {
-            request("GET_PARAMETER", contentBase)
+            sendRequest(method, contentBase, emptyArray())
+            return
         }
+        sendRequest(method, contentBase, emptyArray())
+        val response = readResponse()
+        if (response.status != 200) keepaliveMethod = "OPTIONS"
     }
 
     fun teardown() {

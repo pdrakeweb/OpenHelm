@@ -1,5 +1,7 @@
 package dev.openhelm.protocol.video
 
+import java.io.ByteArrayOutputStream
+
 /**
  * One parsed RTP packet (RFC 3550 header already validated and stripped).
  */
@@ -71,7 +73,11 @@ public class RtpH264Depacketizer(private val onDiscontinuity: () -> Unit = {}) {
     private var expectedSeq: Int? = null
     private var currentTimestamp: Long = -1
     private val nals = ArrayList<ByteArray>()
-    private var fuBuffer: ByteArray? = null
+
+    // A growable buffer rather than `fuBuffer = fuBuffer + fragment`: that spelling re-copies
+    // everything accumulated so far on every continuation, which is O(k²) bytes for a k-fragment
+    // NAL — the reassembly of every keyframe, on the hottest path in the pipeline.
+    private var fu: ByteArrayOutputStream? = null
 
     /**
      * Feed one packet; returns a complete access unit (marker-terminated), or null while one is
@@ -94,7 +100,7 @@ public class RtpH264Depacketizer(private val onDiscontinuity: () -> Unit = {}) {
                 nals.clear()
                 onDiscontinuity()
             }
-            fuBuffer = null
+            fu = null
             currentTimestamp = packet.timestamp
         }
 
@@ -120,16 +126,20 @@ public class RtpH264Depacketizer(private val onDiscontinuity: () -> Unit = {}) {
                 val start = fuHeader and 0x80 != 0
                 val end = fuHeader and 0x40 != 0
                 if (start) {
-                    val reconstructed = ((p[0].toInt() and 0xE0) or (fuHeader and 0x1F)).toByte()
-                    fuBuffer = START_CODE + byteArrayOf(reconstructed) + p.copyOfRange(2, p.size)
+                    val reconstructed = (p[0].toInt() and 0xE0) or (fuHeader and 0x1F)
+                    fu = ByteArrayOutputStream(p.size + 128).apply {
+                        write(START_CODE, 0, START_CODE.size)
+                        write(reconstructed)
+                        write(p, 2, p.size - 2)
+                    }
                 } else {
-                    val buf = fuBuffer
+                    val buf = fu
                         ?: return null // continuation without a start: mid-loss, skip
-                    fuBuffer = buf + p.copyOfRange(2, p.size)
+                    buf.write(p, 2, p.size - 2)
                 }
                 if (end) {
-                    fuBuffer?.let { nals.add(it) }
-                    fuBuffer = null
+                    fu?.let { nals.add(it.toByteArray()) }
+                    fu = null
                 }
             }
 
@@ -137,7 +147,7 @@ public class RtpH264Depacketizer(private val onDiscontinuity: () -> Unit = {}) {
         }
 
         if (!packet.marker) return null
-        if (fuBuffer != null) {
+        if (fu != null) {
             // Marker inside an unfinished fragment run: broken frame.
             dropInProgress()
             onDiscontinuity()
@@ -159,7 +169,7 @@ public class RtpH264Depacketizer(private val onDiscontinuity: () -> Unit = {}) {
 
     private fun dropInProgress() {
         nals.clear()
-        fuBuffer = null
+        fu = null
         currentTimestamp = -1
     }
 }

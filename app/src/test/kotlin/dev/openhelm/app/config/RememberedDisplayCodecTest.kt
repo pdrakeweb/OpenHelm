@@ -86,6 +86,15 @@ class RememberedDisplayCodecTest {
     }
 
     @Test
+    fun `a record with an impossible port is dropped, not probed`() {
+        // Remembered displays are probed automatically at launch, and an out-of-range port makes
+        // InetSocketAddress throw an unchecked exception. A corrupt record decodes to nothing.
+        assertNull(EndpointStore.decode("192.168.1.10\t99999\t2054\t/stream\t16"))
+        assertNull(EndpointStore.decode("192.168.1.10\t554\t99999\t/stream\t16"))
+        assertNull(EndpointStore.decode("192.168.1.10\t0\t2054\t/stream\t16"))
+    }
+
+    @Test
     fun `the label prefers the user's name, then the model, then the address`() {
         assertEquals("Helm E95", RememberedDisplay(endpoint(), "Helm E95").label)
         assertEquals("E9", RememberedDisplay(endpoint()).label)

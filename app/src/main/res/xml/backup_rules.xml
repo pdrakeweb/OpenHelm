@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Pre-API-31 backup rules. Only the DataStore is worth carrying: remembered displays, their
+     user-given names, and the chosen palette. Everything else the app holds is reconstructed
+     from the network. -->
+<full-backup-content>
+    <include domain="file" path="datastore/" />
+</full-backup-content>

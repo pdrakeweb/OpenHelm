@@ -1,6 +1,8 @@
 package dev.openhelm.app.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -28,7 +30,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -60,6 +64,13 @@ fun RemoteScreen(viewModel: MainViewModel, state: ConnectionState, palette: Helm
         if (!viewModel.mirroring) viewModel.selectMirroring(true) else confirmDisconnect = true
     }
 
+    // While the control link is down — connecting or between reconnect attempts — the command
+    // controls are dimmed and inert. The ViewModel already refuses to send while not Connected
+    // (the guard that makes it true); this is the treatment that makes it *visible*, so a key
+    // that will do nothing does not look like a key that will. The status bar stays live: the
+    // palette cycle, the mode switch and Disconnect must all keep working mid-outage.
+    val controlsDisabled = state !is ConnectionState.Connected
+
     // The status bar sits over the picture, not across the whole window, so the control panel
     // starts at the top edge and gets the full height. That is worth more than the tidiness of a
     // full-width bar: the panel's size band is chosen from the height it is handed, so the ~64dp
@@ -75,7 +86,9 @@ fun RemoteScreen(viewModel: MainViewModel, state: ConnectionState, palette: Helm
                 )
                 VideoPane(viewModel, palette, Modifier.weight(1f).fillMaxWidth())
             }
-            SidePanel(viewModel)
+            DimmedWhenDisabled(controlsDisabled, Modifier.fillMaxHeight()) {
+                SidePanel(viewModel)
+            }
         }
     } else {
         Column(Modifier.fillMaxSize()) {
@@ -86,11 +99,13 @@ fun RemoteScreen(viewModel: MainViewModel, state: ConnectionState, palette: Helm
                 onDisconnectRequest = { confirmDisconnect = true },
             )
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Keypad(
-                    onKeyDown = viewModel::keyDown,
-                    onKeyUp = viewModel::keyUp,
-                    onRotate = viewModel::zoomStep,
-                )
+                DimmedWhenDisabled(controlsDisabled) {
+                    Keypad(
+                        onKeyDown = viewModel::keyDown,
+                        onKeyUp = viewModel::keyUp,
+                        onRotate = viewModel::zoomStep,
+                    )
+                }
             }
         }
     }
@@ -105,6 +120,52 @@ fun RemoteScreen(viewModel: MainViewModel, state: ConnectionState, palette: Helm
         )
     }
 }
+
+/**
+ * Dims its content and swallows its touches while [disabled].
+ *
+ * This is the visual half of the "controls do nothing while the link is down" contract — the
+ * ViewModel's Connected-only send guard is the functional half. Both exist because either alone
+ * lies: a guard without the dim leaves keys that look live but do nothing (indistinguishable from
+ * a broken app), and a dim without the guard is a promise the code doesn't keep. The alpha is a
+ * mild grey-out, not a blackout: the panel should still read as "your controls, temporarily
+ * resting", with the status line above saying why.
+ *
+ * Touches are consumed, not just ignored: the keys underneath have their own pointer handlers and
+ * press animations, and a key that flashes and buzzes while doing nothing teaches the user it is
+ * broken. Every gesture is eaten whole here, the same way the stale-video scrim does it.
+ */
+@Composable
+private fun DimmedWhenDisabled(
+    disabled: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Box(modifier) {
+        Box(Modifier.graphicsLayer { alpha = if (disabled) DISABLED_CONTROLS_ALPHA else 1f }) {
+            content()
+        }
+        if (disabled) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false).consume()
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                event.changes.forEach { it.consume() }
+                                if (event.changes.none { it.pressed }) break
+                            }
+                        }
+                    },
+            )
+        }
+    }
+}
+
+/** Dim, not invisible: the panel must still be findable, only unmistakably not-live. */
+private const val DISABLED_CONTROLS_ALPHA = 0.45f
 
 /**
  * Ending the session is destructive and used to be a bare text link a thumb-width from the video

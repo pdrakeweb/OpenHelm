@@ -79,8 +79,11 @@ public data class MfdEndpoint(
         public fun parse(line: String): MfdEndpoint? {
             val f = line.trim().split(":")
             if (f.size < 4) return null
-            val rtspPort = f[1].toIntOrNull() ?: return null
-            val rrcPort = f[2].toIntOrNull() ?: return null
+            // Ports must be actual TCP ports. Anything else is rejected here, at the parse,
+            // because `InetSocketAddress` throws an *unchecked* IllegalArgumentException for an
+            // out-of-range port — deep inside a connection loop is the wrong place to find out.
+            val rtspPort = f[1].toIntOrNull()?.takeIf { it in 1..0xFFFF } ?: return null
+            val rrcPort = f[2].toIntOrNull()?.takeIf { it in 1..0xFFFF } ?: return null
             if (f[0].isBlank() || f[3].isBlank()) return null
             val version = f.getOrNull(4)?.toIntOrNull(16) ?: Rrc.DEFAULT_VERSION
             return MfdEndpoint(f[0], rtspPort, rrcPort, f[3], version)

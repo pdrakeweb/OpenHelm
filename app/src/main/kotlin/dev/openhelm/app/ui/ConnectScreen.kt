@@ -19,7 +19,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -71,6 +73,7 @@ fun ConnectScreen(viewModel: MainViewModel) {
     val searching by viewModel.searching.collectAsStateWithLifecycle()
     val probing by viewModel.probingRecents.collectAsStateWithLifecycle()
     val timedOut by viewModel.discoveryTimedOut.collectAsStateWithLifecycle()
+    val lostReason by viewModel.connectionLost.collectAsStateWithLifecycle()
 
     DisposableEffect(Unit) {
         viewModel.startAutoConnect()
@@ -78,15 +81,15 @@ fun ConnectScreen(viewModel: MainViewModel) {
     }
 
     Box(Modifier.fillMaxSize()) {
-        OverflowMenu(
-            onManual = viewModel::openManual,
-            onSettings = viewModel::openSettings,
-            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
-        )
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                // Scrolls only when it has to. With `Arrangement.Center` the content stays
+                // centred whenever it fits, which is the normal case; on a phone in landscape the
+                // wordmark, the 132dp ring, an outcome line and a row of recents together exceed
+                // the window, and without this the recents buttons — the fastest way back to the
+                // display — were clipped off the bottom with no way to reach them.
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 32.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
@@ -115,6 +118,7 @@ fun ConnectScreen(viewModel: MainViewModel) {
                 active = searching || probing,
                 timedOut = timedOut,
                 idle = viewModel.autoConnectSuppressed,
+                lostReason = lostReason,
                 onScan = viewModel::resumeAutoConnect,
             )
 
@@ -123,6 +127,18 @@ fun ConnectScreen(viewModel: MainViewModel) {
                 RecentButtons(recents, onConnect = { viewModel.connect(it.endpoint) })
             }
         }
+
+        // Declared LAST so it is on top — in a Box, z-order is declaration order, and the Column
+        // above fills the whole window. Declared first, the kebab was drawn beneath that Column
+        // and was therefore **not tappable at all**: the only route to Manual connect and Settings
+        // was dead, and the button was pruned from the accessibility tree as an obscured node, so
+        // TalkBack could not reach it either. Both were measured on a phone, not reasoned about —
+        // taps on the ring registered while taps on the kebab did nothing.
+        OverflowMenu(
+            onManual = viewModel::openManual,
+            onSettings = viewModel::openSettings,
+            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+        )
     }
 }
 
@@ -146,6 +162,7 @@ private fun ScanningIndicator(
     active: Boolean,
     timedOut: Boolean,
     idle: Boolean,
+    lostReason: String?,
     onScan: () -> Unit,
 ) {
     val accent = MaterialTheme.colorScheme.primary
@@ -207,9 +224,13 @@ private fun ScanningIndicator(
         )
     }
 
+    // Why the user is looking at this screen, in order of specificity: an explicit disconnect
+    // beats everything (the user did it, and the screen must not argue); a lost session beats a
+    // plain empty scan (the user was mid-session and deserves to know it ended and why).
     val outcome = when {
         active -> null
         idle -> "Disconnected"
+        lostReason != null -> "Connection lost"
         timedOut -> "No MFD found"
         else -> null
     }
@@ -221,10 +242,16 @@ private fun ScanningIndicator(
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Medium,
         )
-        if (timedOut && !idle) {
+        val detail = when {
+            idle -> null
+            lostReason != null -> friendlyReason(lostReason).replaceFirstChar { it.uppercase() }
+            timedOut -> "Some boat networks block automatic discovery."
+            else -> null
+        }
+        if (detail != null) {
             Spacer(Modifier.height(8.dp))
             Text(
-                "Some boat networks block automatic discovery.",
+                detail,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

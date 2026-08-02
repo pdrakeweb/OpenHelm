@@ -29,13 +29,13 @@ object AppModule {
      *
      * [SupervisorJob] stops one failed child from cancelling its siblings, but on its own it does
      * not stop a failure from reaching the thread's default handler, which on Android means the
-     * process dies. The socket loops catch `IOException` because that is the expected failure; a
-     * `NullPointerException` from a malformed RTSP response, or an `IllegalStateException` out of
-     * `MediaCodec`, is not caught anywhere and used to take the whole app down — including the
-     * control channel, which is the one part that must survive video going wrong.
+     * process dies.
      *
-     * The handler makes those failures loud but survivable: the affected coroutine still dies and
-     * its own reconnect logic still applies, while the rest of the app keeps running.
+     * The connection and video loops treat **any** `Exception` as a failed attempt and retry with
+     * backoff — the loops themselves are the recovery mechanism, and nothing that a single attempt
+     * can throw is allowed to kill one. This handler is therefore the *last* line of defence, not
+     * part of normal recovery: anything that still reaches it escaped the loops entirely (a bug in
+     * the loop structure itself), and the right response is a loud log and a surviving process.
      */
     @Provides
     @Singleton

@@ -1,10 +1,10 @@
 plugins {
     // AGP 9 ships built-in Kotlin support; the standalone kotlin("android") plugin must not be
     // applied alongside it.
-    id("com.android.application")
-    id("org.jetbrains.kotlin.plugin.compose")
-    id("com.google.devtools.ksp")
-    id("com.google.dagger.hilt.android")
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.hilt)
 }
 
 android {
@@ -21,7 +21,13 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 for shrinking, not for secrecy — the project is open source. Compose and Hilt
+            // ship their own consumer keep rules; anything app-specific goes in proguard-rules.pro.
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 
@@ -40,27 +46,27 @@ kotlin {
 dependencies {
     implementation(project(":protocol"))
 
-    implementation(platform("androidx.compose:compose-bom:2026.06.01"))
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.foundation:foundation")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    debugImplementation("androidx.compose.ui:ui-tooling")
+    implementation(platform(libs.compose.bom))
+    implementation(libs.compose.ui)
+    implementation(libs.compose.foundation)
+    implementation(libs.compose.material3)
+    implementation(libs.compose.ui.tooling.preview)
+    debugImplementation(libs.compose.ui.tooling)
 
-    implementation("androidx.activity:activity-compose:1.10.1")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.1")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.1")
+    implementation(libs.activity.compose)
+    implementation(libs.lifecycle.runtime.compose)
+    implementation(libs.lifecycle.viewmodel.compose)
 
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    implementation(libs.coroutines.android)
 
-    implementation("androidx.datastore:datastore-preferences:1.1.7")
+    implementation(libs.datastore.preferences)
 
-    implementation("com.google.dagger:hilt-android:2.60.1")
-    ksp("com.google.dagger:hilt-android-compiler:2.60.1")
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler)
 
     // Local JVM tests only — the pure decision functions behind the layout and the safety copy.
     // Deliberately not Robolectric or an instrumentation suite: what is worth locking down here is
     // arithmetic and string handling that can be checked at window sizes and against inputs no
     // emulator conveniently produces.
-    testImplementation("junit:junit:4.13.2")
+    testImplementation(libs.junit4)
 }

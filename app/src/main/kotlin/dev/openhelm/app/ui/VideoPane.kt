@@ -42,6 +42,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.openhelm.app.BuildConfig
 import dev.openhelm.app.video.RtpTransport
 import dev.openhelm.app.video.VideoState
+import java.util.Locale
 
 /**
  * The display mirror: a letterboxed 5:3 [TextureView] with a connect spinner until the first
@@ -73,8 +74,18 @@ fun VideoPane(viewModel: MainViewModel, palette: HelmPalette, modifier: Modifier
     // decoded frame is stuck on the TextureView for as long as the pane lives, which is what makes
     // every later non-streaming state a safety case rather than a loading case.
     var everStreamed by remember { mutableStateOf(false) }
+    // Whether video has ever *failed* on this pane, and why. Without this the pane cannot tell a
+    // first connection from the twentieth retry of a connection that will never succeed, and shows
+    // the same reassuring spinner for both.
+    var everFailed by remember { mutableStateOf(false) }
+    var lastFailure by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(videoState) {
-        if (videoState == VideoState.Streaming) everStreamed = true
+        val s = videoState
+        if (s == VideoState.Streaming) everStreamed = true
+        if (s is VideoState.Failed) {
+            everFailed = true
+            lastFailure = s.reason
+        }
     }
 
     // Push the local zoom/pan into the TextureView whenever it changes.
@@ -100,17 +111,25 @@ fun VideoPane(viewModel: MainViewModel, palette: HelmPalette, modifier: Modifier
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { context ->
+                    // The Surface wraps a native buffer queue and is not garbage-collector-cheap:
+                    // it is held here so destruction can release it deterministically instead of
+                    // leaving the native reference to a finalizer.
+                    var paneSurface: Surface? = null
                     TextureView(context).apply {
                         // Keeping the screen awake is deliberately NOT done here — it is a
                         // property of being in a session, and the keypad-only mode has no
                         // TextureView. See KeepScreenOn(), held by the remote screen itself.
                         surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                             override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
-                                viewModel.onVideoSurfaceReady(Surface(st))
+                                val surface = Surface(st)
+                                paneSurface = surface
+                                viewModel.onVideoSurfaceReady(surface)
                             }
 
                             override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
                                 viewModel.onVideoSurfaceDestroyed()
+                                paneSurface?.release()
+                                paneSurface = null
                                 return true
                             }
 
@@ -143,7 +162,11 @@ fun VideoPane(viewModel: MainViewModel, palette: HelmPalette, modifier: Modifier
         when (val s = videoState) {
             VideoState.Streaming -> {}
 
-            is VideoState.Failed -> StaleVideoOverlay(reason = friendlyReason(s.reason))
+            is VideoState.Failed ->
+                if (everStreamed) StaleVideoOverlay(reason = friendlyReason(s.reason))
+                // Nothing has ever been on this pane, so there is no stale picture to warn about —
+                // the honest message is that video could not be started, and why.
+                else NoVideoOverlay(reason = friendlyReason(s.reason))
 
             // Before the first frame there is nothing behind this but black, so a spinner is the
             // honest treatment. Afterwards there is a frozen chart, and every non-streaming state
@@ -151,8 +174,17 @@ fun VideoPane(viewModel: MainViewModel, palette: HelmPalette, modifier: Modifier
             // Failed → Connecting → Failed on a roughly 18-second period, and scrimming only
             // Failed left that frozen chart at full brightness for most of each cycle.
             is VideoState.Connecting, VideoState.Idle ->
-                if (everStreamed) StaleVideoOverlay(reason = null)
-                else CircularProgressIndicator(Modifier.size(48.dp))
+                if (everStreamed) {
+                    StaleVideoOverlay(reason = null)
+                } else if (everFailed) {
+                    // Connecting *again* after a failure is not a first connect, and showing the
+                    // same bare spinner for both is how "video is broken" spent a whole sea trial
+                    // looking like "video is still loading". Keep the diagnosis on screen while
+                    // the retry runs underneath it.
+                    NoVideoOverlay(reason = lastFailure?.let(::friendlyReason), retrying = true)
+                } else {
+                    CircularProgressIndicator(Modifier.size(48.dp))
+                }
         }
 
         // The overlay that keeps us honest: if these numbers regress, the build is broken.
@@ -164,7 +196,8 @@ fun VideoPane(viewModel: MainViewModel, palette: HelmPalette, modifier: Modifier
                     append(" · dec ").append(stats.decodeMs).append(" ms")
                     append(" · drop ").append(stats.dropped)
                     append(" · gap ").append(stats.discontinuities)
-                    if (scale > 1f) append(" · ×%.1f".format(scale))
+                    // Locale.ROOT: a comma-decimal locale would render "×1,5".
+                    if (scale > 1f) append(" · ×").append(String.format(Locale.ROOT, "%.1f", scale))
                     if (stats.transport == RtpTransport.TCP_INTERLEAVED) append(" · TCP (sim)")
                 },
                 color = Color(0xCCE8EEF4),
@@ -180,13 +213,64 @@ fun VideoPane(viewModel: MainViewModel, palette: HelmPalette, modifier: Modifier
 }
 
 /**
+ * Video never started — as distinct from video that started and then froze.
+ *
+ * The two want opposite treatments and used to share one. [StaleVideoOverlay] exists to warn that
+ * a picture is old; here there is no picture at all, so its wording ("this is the last picture
+ * received") would be a lie, and the loading spinner is worse than a lie — it says *wait* about a
+ * condition that will not resolve by waiting. This says what happened, keeps saying it while the
+ * retry runs, and leaves the controls alone: remote-only is a complete way to use the app, and a
+ * dead video pane is not a dead session.
+ */
+@Composable
+private fun NoVideoOverlay(reason: String?, retrying: Boolean = false) {
+    Box(
+        Modifier.fillMaxSize().background(Color(0xCC000000)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(24.dp),
+        ) {
+            Text(
+                "NO VIDEO",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = buildString {
+                    append("The display's picture could not be started")
+                    if (reason != null) append(" — ").append(reason)
+                    append(".")
+                    if (retrying) append(" Still trying…")
+                },
+                color = Color.White,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "The controls still work — switch to Remote for the full keypad.",
+                color = Color(0xCCE8EEF4),
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+/**
  * What the user sees when the video link drops.
  *
  * **This is a safety treatment, not a status message.** When the stream fails the last decoded
  * frame stays on the `TextureView` — a chart, at full brightness, looking exactly like live video.
  * Someone glancing at a mounted phone mid-manoeuvre could act on a position that is now minutes
- * stale. So the frozen picture is deliberately buried: a heavy scrim knocks it back, and a
- * high-contrast banner states plainly that it is not live.
+ * stale. So the last good frame is *kept visible* — during a brief dropout it is still the most
+ * useful picture available — but under a scrim heavy enough that it cannot pass for live, and a
+ * banner that states in words that it is delayed, not realtime.
  *
  * It does not auto-dismiss, and it is deliberately **not** a Snackbar — a transient message that
  * clears itself is precisely the wrong pattern for a condition that is still true after it fades.
@@ -196,8 +280,10 @@ private fun StaleVideoOverlay(reason: String?) {
     Box(
         Modifier
             .fillMaxSize()
-            // Heavy enough that the frozen chart underneath cannot be mistaken for live video.
-            .background(Color(0xD9000000))
+            // Dark enough that the frozen chart cannot be mistaken for live video, light enough
+            // that the last good frame stays readable through it — during a dropout that frame
+            // is still the best information on the pane, as long as it visibly is not live.
+            .background(Color(0x99000000))
             // The scrim must stop touches as well as light. Drawing over the frozen chart does
             // not stop a tap reaching the forwarding layer beneath it, and that tap would be sent
             // to the display as a real touch at a chart position the user believes is current —
@@ -219,7 +305,7 @@ private fun StaleVideoOverlay(reason: String?) {
             modifier = Modifier.padding(24.dp),
         ) {
             Text(
-                "VIDEO NOT LIVE",
+                "VIDEO DELAYED — NOT LIVE",
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
@@ -228,9 +314,9 @@ private fun StaleVideoOverlay(reason: String?) {
             Spacer(Modifier.height(8.dp))
             Text(
                 text = if (reason != null) {
-                    "The picture behind this is frozen — $reason. Reconnecting…"
+                    "This is the last picture received, not realtime — $reason. Reconnecting…"
                 } else {
-                    "The picture behind this is frozen. Reconnecting…"
+                    "This is the last picture received, not realtime. Reconnecting…"
                 },
                 color = Color.White,
                 style = MaterialTheme.typography.bodyMedium,

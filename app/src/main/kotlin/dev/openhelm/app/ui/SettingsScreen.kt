@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -16,7 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -31,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -63,12 +64,25 @@ fun SettingsScreen(viewModel: MainViewModel, palette: HelmPalette) {
     BackHandler { viewModel.backToConnect() }
     val remembered by viewModel.remembered.collectAsStateWithLifecycle()
 
-    Column(
-        Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp),
-    ) {
+    // The header is pinned and only the content below it scrolls.
+    //
+    // This screen used to be a plain Column with no scrolling at all, so on any window shorter
+    // than its content — a phone in landscape reaches it in about half the height it needs — the
+    // remembered displays were simply clipped away with no way to reach them. That is the same
+    // defect ManualConnectScreen was fixed for, and the *worse* version of it: a name field you
+    // cannot scroll to is a feature that silently does not exist.
+    //
+    // Note this cannot be fixed by wrapping the old Column in `verticalScroll`: it contained a
+    // LazyColumn, and a lazy list inside a vertically-scrolling parent is measured with infinite
+    // height and throws. One LazyColumn for the whole content is the fix, not a nested pair.
+    //
+    // Done stays outside the scroll deliberately. It is the way off this screen, and an exit that
+    // can scroll out of sight is the thing you most need when the content is too tall to fit.
+    Column(Modifier.fillMaxSize()) {
         Row(
-            Modifier.fillMaxWidth(),
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -84,37 +98,56 @@ fun SettingsScreen(viewModel: MainViewModel, palette: HelmPalette) {
             )
         }
 
-        PaletteSection(
-            palette = palette,
-            onSelect = viewModel::selectPalette,
-        )
-
-        SimulationSection(
-            enabled = viewModel.simulationMode,
-            onToggle = { on -> if (on) viewModel.enterSimulation() else viewModel.exitSimulation() },
-        )
-
-        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text(
-                "Displays",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Medium,
-            )
-
-            if (remembered.isEmpty()) {
-                Text(
-                    "No remembered displays yet. Once you connect to one, it appears here to name or remove.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp),
+        ) {
+            item(key = "palette") {
+                PaletteSection(
+                    palette = palette,
+                    onSelect = viewModel::selectPalette,
                 )
-            } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(remembered, key = { it.endpoint.host }) { display ->
-                        DisplaySettingRow(
-                            display = display,
-                            onSaveName = { viewModel.renameDisplay(display.endpoint.host, it) },
-                            onForget = { viewModel.forgetDisplay(display.endpoint.host) },
+            }
+
+            item(key = "simulation") {
+                SimulationSection(
+                    enabled = viewModel.simulationMode,
+                    onToggle = { on -> if (on) viewModel.enterSimulation() else viewModel.exitSimulation() },
+                )
+            }
+
+            // The whole Displays section is one item so it keeps its own internal rhythm — the
+            // cards belong to each other more closely than the top-level sections do, which the
+            // list's 24dp arrangement would have flattened. Not lazily composed, and deliberately
+            // so: MAX_REMEMBERED caps this at 12 rows, where laziness buys nothing and costs the
+            // grouping.
+            item(key = "displays") {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text(
+                        "Displays",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium,
+                    )
+
+                    if (remembered.isEmpty()) {
+                        Text(
+                            "No remembered displays yet. Once you connect to one, it appears here to name or remove.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            remembered.forEach { display ->
+                                key(display.endpoint.host) {
+                                    DisplaySettingRow(
+                                        display = display,
+                                        onSaveName = { viewModel.renameDisplay(display.endpoint.host, it) },
+                                        onForget = { viewModel.forgetDisplay(display.endpoint.host) },
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }

@@ -57,7 +57,9 @@ class EndpointStore @Inject constructor(@ApplicationContext private val context:
     }
 
     /**
-     * The chosen day/dusk/night palette, or null to follow the system's light/dark setting.
+     * The chosen day/dusk/night palette, or null if the user has never chosen — in which case the
+     * UI shows its own default (dark; see `DefaultPalette`), deliberately ignoring the system
+     * light/dark setting, which describes a living room rather than a cockpit.
      *
      * Persisted, unlike simulation mode: night vision takes twenty minutes to build and seconds to
      * destroy, so a boat that came alongside after dark must not relaunch into a white screen. The
@@ -142,10 +144,14 @@ class EndpointStore @Inject constructor(@ApplicationContext private val context:
         fun decode(line: String): RememberedDisplay? {
             val f = line.split("\t")
             if (f.size < 5) return null
+            // Ports are validated on the way *out* of storage, not just on the way in: these
+            // records are probed automatically at launch, and `InetSocketAddress` throws an
+            // unchecked exception for an out-of-range port. A corrupt record must decode to
+            // nothing, never to an endpoint that detonates inside a connection loop.
             val endpoint = MfdEndpoint(
                 host = unesc(f[0]),
-                rtspPort = f[1].toIntOrNull() ?: return null,
-                rrcPort = f[2].toIntOrNull() ?: return null,
+                rtspPort = f[1].toIntOrNull()?.takeIf { it in 1..0xFFFF } ?: return null,
+                rrcPort = f[2].toIntOrNull()?.takeIf { it in 1..0xFFFF } ?: return null,
                 rtspPath = unesc(f[3]),
                 rrcVersion = f[4].toIntOrNull() ?: return null,
                 model = f.getOrNull(5)?.let(::unesc)?.ifEmpty { null },

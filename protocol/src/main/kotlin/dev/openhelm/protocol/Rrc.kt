@@ -18,8 +18,11 @@ package dev.openhelm.protocol
  * ```
  */
 public object Rrc {
-    /** Magic bytes, as they appear on the wire. */
-    public val MAGIC: ByteArray = byteArrayOf(0x45, 0x43, 0x52, 0x52) // "ECRR"
+    /**
+     * Magic bytes, as they appear on the wire. Internal because a `ByteArray` is mutable: exposing
+     * it publicly would let a caller corrupt every frame this object encodes afterwards.
+     */
+    internal val MAGIC: ByteArray = byteArrayOf(0x45, 0x43, 0x52, 0x52) // "ECRR"
 
     public const val HEADER_LEN: Int = 9
     public const val CONST_BYTE: Int = 0x01

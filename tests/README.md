@@ -24,6 +24,11 @@ the shared harness every test file depends on — read it first.**
 | [13-simulation-mode.md](13-simulation-mode.md) | Settings' Simulation mode: fake video, live controls, non-persistence |
 | [14-design-review-fixes.md](14-design-review-fixes.md) | The design review's P0s: adaptive panel, touch targets, stale-video, vocabulary, icons |
 | [15-council-fixes.md](15-council-fixes.md) | The code review's findings: pinch leakage, gesture cancellation, scrim touches, the palettes, accessibility |
+| [16-resilience-faults.md](16-resilience-faults.md) | **Resilience 1/5** — the outage matrix: transient drop, refused control, video-only loss, whole-network down; retry, give-up-to-scanning, greyed controls, delayed-video warning |
+| [17-video-resilience.md](17-video-resilience.md) | **Resilience 2/5** — video pipeline: starved stream vs refused endpoint, first-frame latch, remote-only refuge, flapping, decoder reclaim |
+| [18-discovery-resilience.md](18-discovery-resilience.md) | **Resilience 3/5** — discovery: window elapses honestly, mid-scan recovery, mDNS flapping, repeated Scan-again, probe-before-scan order |
+| [19-resilience-lifecycle.md](19-resilience-lifecycle.md) | **Resilience 4/5** — failures crossed with lifecycle: backgrounded/rotated mid-reconnect, connection dies mid-hold, Disconnect mid-reconnect, cold start into a dead display |
+| [20-resilience-soak.md](20-resilience-soak.md) | **Resilience 5/5** — soak and resource health: flap ×30/×20, full-outage cycling, fd/thread/memory comparison, long unattended run |
 
 ---
 
@@ -221,6 +226,46 @@ out=$("$ADB" install -r "$APK" 2>&1); echo "$out" | grep -q Success && echo "INS
 # Simulator's decoded control log (the oracle for every control test)
 tail -f emulator/emu.log
 ```
+
+### Fault injection — the harness the resilience tests (16–20) run on
+
+The simulator can take itself apart in the specific ways a boat does. Faults are fired from a
+script, so a test can drive a failure and assert on the app's response without a human at the
+keyboard:
+
+```bash
+cd emulator
+python -m mfd_emulator --no-console --log-file emu.log     # control port up on 127.0.0.1:8571
+python scripts/fault.py status                             # what is currently up
+python scripts/fault.py log 30                             # tail the event log
+```
+
+| Command | What it does to the simulated display |
+|---|---|
+| `close-rrc` | closes the control socket; the listener stays up → **transient** drop, next reconnect succeeds |
+| `rrc-down` / `rrc-up` | stops/resumes the control listener → every reconnect **refused** (the display left the network) |
+| `stall-on` / `stall-off` | stops reading without closing → **hung** display: socket ESTABLISHED, frames ignored |
+| `stream-drop` / `stream-resume` | kills/restarts FFmpeg, RTSP endpoint stays up → the session **starves** |
+| `video-down` / `video-up` | stops/starts the whole RTSP endpoint → video **refused**, control unaffected |
+| `net-down` / `net-up` | advertising + control + video, all at once → the display **vanishes** |
+| `discovery-toggle` | starts/stops advertising `_rtsp._tcp` |
+
+The app-side constants these tests assert against, so an expectation and the code cannot drift
+apart silently:
+
+| Constant | Value | Where |
+|---|---|---|
+| Control retry budget | 5 attempts, backoff 1/2/4/8/15 s (~30 s) then **give up → connect screen** | `RrcClient.MAX_ATTEMPTS` |
+| Control connect timeout | 45 s first attempt, 20 s on retries | `RrcClient.CONNECT_TIMEOUT_MS` |
+| Write stall watchdog | 5 s | `RrcClient.WRITE_STALL_MS` |
+| Video retry | **unbounded**, backoff 3 s → 15 s | `VideoPlayer.RETRY_BACKOFF_MS` |
+| Video stall timeout | 10 s with no RTP | `VideoPlayer.RTP_STALL_TIMEOUT_MS` |
+| RTSP response timeout | 15 s | `VideoPlayer.RTSP_RESPONSE_TIMEOUT_MS` |
+| Discovery window | 12 s | `MainViewModel.DISCOVERY_WINDOW_MS` |
+
+> **The asymmetry is deliberate and is what several of these tests assert:** losing *video*
+> degrades the session to remote-only and retries forever; losing *control* ends the session and
+> hands the user back to the scanning screen. Video is a convenience, control is the product.
 
 ### Tap a control by its label rather than by pixel
 

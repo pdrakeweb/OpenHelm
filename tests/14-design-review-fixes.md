@@ -220,3 +220,50 @@ width and drew **outside** its parent — over the status bar and its buttons.
 - **VERIFY:** In the screenshot, no part of the picture crosses into the status bar row; both
   status-bar buttons are fully drawn.
 - **PASS/FAIL:** PASS if the picture is contained at every window shape tried. FAIL if it spills.
+
+### 14.14 Every screen reaches all of its own content at compact height
+
+Added 2026-07-28 after a field report: **Settings did not scroll.** It was a plain `Column` with
+`fillMaxSize()` and no scroll modifier, so on a phone — which needs roughly twice the height this
+screen occupies — the Displays section was clipped away with no way to reach it. A name field you
+cannot scroll to is a feature that silently does not exist.
+
+Two traps this check exists to catch, both hit while fixing it:
+
+1. **You cannot fix it by wrapping the old Column in `verticalScroll`.** It contained a
+   `LazyColumn`, and a lazy list inside a vertically-scrolling parent is measured with infinite
+   height and throws. The fix is one `LazyColumn` for the whole content, not a nested pair.
+2. **Adding a scroll modifier can break a sibling's hit testing.** `verticalScroll` gives a
+   full-size `Column` a pointer-input modifier, and on the connect screen that Column was declared
+   *before* the overflow kebab in the same `Box` — so it began swallowing every tap meant for the
+   kebab, and Manual connect and Settings became unreachable entirely. In a `Box`, z-order is
+   declaration order: anything meant to sit on top must be declared last.
+
+- **SETUP:** Phone-sized AVD (`OpenHelmPhone35`, 1088×487dp landscape), at least one remembered
+  display so the Displays section has content. Check **both** orientations.
+- **STEPS:** kebab → Settings. Swipe up repeatedly. Then tap **Done**.
+- **EXPECTED:**
+  1. The kebab opens the menu on the first tap, in both orientations.
+  2. Settings scrolls; the palette, Simulation mode, Displays heading and every display card are
+     all reachable.
+  3. **Done stays pinned** and never scrolls out of reach — it is the way off this screen.
+  4. Done returns to the connect screen.
+  5. On the connect screen, the recents buttons are reachable at every window shape.
+- **VERIFY:**
+  ```bash
+  # menu opens
+  "$ADB" shell input tap <kebab>; "$ADB" exec-out uiautomator dump /dev/tty \
+    | tr '<' '\n' | grep -cE 'text="(Manual connect|Settings)"'      # expect 2
+  # content moves under a pinned header
+  "$ADB" exec-out uiautomator dump /dev/tty | tr '<' '\n' \
+    | sed -E 's/.*(text="[^"]*").*(bounds="[^"]*").*/\1 \2/' | head   # note y of "Bright"
+  "$ADB" shell input swipe 1400 1000 1400 300 400                     # scroll
+  # re-dump: "Bright" y must decrease; "Settings"/"Done" y must NOT change
+  ```
+- **PASS/FAIL:** PASS if the kebab opens first tap in both orientations, every Settings section is
+  reachable by scrolling, the header holds position while content moves, and Done works. FAIL on
+  any clipped section, a scrolling header, or a kebab that does not respond.
+- **Result 2026-07-28 (OpenHelmPhone35, landscape + portrait):** **PASS.** Before the fix the
+  Displays card was entirely off-screen in landscape. After: `Bright` moved 656→402px across one
+  swipe while `Settings` held at y=205 and `Done` at y=226; three more swipes reached the display
+  card with its Name field, host, Save and Forget; Done returned to the connect screen.

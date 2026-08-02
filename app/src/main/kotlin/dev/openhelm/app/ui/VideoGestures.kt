@@ -49,6 +49,9 @@ internal suspend fun PointerInputScope.videoTouchGestures(
         val viewSize = this.size
         var touching = true
         var pinching = false
+        // Timing comes from the pointer events' own uptime clock, not the wall clock: wall time
+        // jumps with NTP corrections and manual changes, and a backwards jump mid-gesture would
+        // re-open the pinch grace window or stall the move throttle.
         var lastMs = 0L
 
         fun content(p: Offset): Offset {
@@ -65,7 +68,7 @@ internal suspend fun PointerInputScope.videoTouchGestures(
         }
 
         var last = content(down.position)
-        val downAtMs = System.currentTimeMillis()
+        val downAtMs = down.uptimeMillis
         // The DOWN is deliberately NOT sent yet. A pinch begins as a single finger, so sending on
         // first contact meant every two-finger zoom emitted a DOWN and then an UP — a real tap on
         // the chart, which is exactly what this gesture's contract says a pinch must never do. The
@@ -113,7 +116,7 @@ internal suspend fun PointerInputScope.videoTouchGestures(
                     event.changes.forEach { it.consume() }
                 } else if (pressedChanges.size == 1 && touching) {
                     val change = pressedChanges.first()
-                    val now = System.currentTimeMillis()
+                    val now = change.uptimeMillis
                     if (now - downAtMs >= PINCH_GRACE_MS) {
                         sendDownOnce()
                         if (now - lastMs >= MOVE_INTERVAL_MS) {

@@ -215,7 +215,7 @@ private fun SimulatedVideoPane(
                                         gesture.positions.forEach {
                                             trail.add(it, pinch = true, nowNanos = System.nanoTime())
                                         }
-                                        onAction("Pinch zoom ×%.1f".format(gesture.scale))
+                                        onAction("Pinch zoom ×" + String.format(java.util.Locale.ROOT, "%.1f", gesture.scale))
                                     }
                                     VideoGesture.End -> touching = false
                                 }

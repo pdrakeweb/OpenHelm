@@ -29,6 +29,12 @@ public sealed interface RrcFrame {
  * arriving in one read. On a corrupt stream it resynchronises by dropping a byte and rescanning for
  * the magic, so bad input can slow it down but cannot wedge it.
  *
+ * The app itself never decodes RRC — the display never speaks on the control socket. This class is
+ * the *receiving* half of the protocol, here so that simulators, desktop tooling and the tests can
+ * verify what the encoder emits. The boxed `ArrayDeque<Byte>` buffer is deliberate simplicity: at
+ * control-channel rates (tens of bytes per user action) it costs nothing; swap it for a ByteArray
+ * ring before feeding it anything video-rate.
+ *
  * Not thread-safe; own it from one coroutine.
  */
 public class RrcDecoder {

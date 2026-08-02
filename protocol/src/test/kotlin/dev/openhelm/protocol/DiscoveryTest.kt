@@ -56,6 +56,17 @@ class DiscoveryTest {
     }
 
     @Test
+    fun `out-of-range ports are rejected at the parse, not deep in a socket call`() {
+        // InetSocketAddress throws an *unchecked* IllegalArgumentException for a bad port; an
+        // endpoint carrying one would detonate inside a connection loop at every retry. The
+        // parse is the trust boundary, so the parse is where these die.
+        assertNull(MfdEndpoint.parse("192.168.1.1:99999:50000:x"))  // rtsp port too large
+        assertNull(MfdEndpoint.parse("192.168.1.1:8554:99999:x"))   // rrc port too large
+        assertNull(MfdEndpoint.parse("192.168.1.1:0:50000:x"))      // zero is not connectable
+        assertNull(MfdEndpoint.parse("192.168.1.1:-1:50000:x"))
+    }
+
+    @Test
     fun `manual address ignores surrounding whitespace`() {
         // It is typed by hand on a boat, and pasted from a config file.
         assertEquals("10.0.2.2", MfdEndpoint.parse("  10.0.2.2:8555:50000:stream:01  ")!!.host)

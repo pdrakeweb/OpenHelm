@@ -15,6 +15,7 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import java.util.Locale
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
@@ -234,13 +235,20 @@ private fun DrawScope.drawDataBar(
     val cog = 74f + sin(t / 7.3f) * 5f
     val dpt = 18.2f + sin(t / 4.1f) * 2.4f
 
+    // Locale.ROOT throughout: a comma-decimal locale would render "6,4 kn", which reads as two
+    // fields on an instrument bar.
     val fields = listOf(
-        "SOG" to "%.1f kn".format(sog),
-        "COG" to "%03d°".format(cog.roundToInt().mod(360)),
-        "DPT" to "%.1f m".format(dpt),
+        "SOG" to String.format(Locale.ROOT, "%.1f kn", sog),
+        "COG" to String.format(Locale.ROOT, "%03d°", cog.roundToInt().mod(360)),
+        "DPT" to String.format(Locale.ROOT, "%.1f m", dpt),
         // A clock rather than a stopwatch: minutes from a fixed afternoon start, so the field
         // reads the way the real one does instead of counting up from zero.
-        "TIME" to "%02d:%02d".format(((CLOCK_START_MIN + t / 60) / 60).toInt().mod(24), (CLOCK_START_MIN + t / 60).toInt().mod(60)),
+        "TIME" to String.format(
+            Locale.ROOT,
+            "%02d:%02d",
+            ((CLOCK_START_MIN + t / 60) / 60).toInt().mod(24),
+            (CLOCK_START_MIN + t / 60).toInt().mod(60),
+        ),
     )
 
     var cx = x(14f)

@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 
 /**
@@ -73,6 +74,12 @@ class MfdDiscovery @Inject constructor(
 
     fun start() {
         if (_searching.value) return
+        // A previous session that *failed to start* leaves debris — one successfully registered
+        // listener of the pair, a live resolve worker, a held multicast lock — and the
+        // `_searching` flag alone does not see it. Without this teardown, every "Scan again"
+        // after a start failure leaked another listener into NsdManager until its per-app limit
+        // broke discovery for the rest of the process's life.
+        stop()
         synchronized(this) {
             rtspByHost.clear()
             rrcByHost.clear()
@@ -102,7 +109,10 @@ class MfdDiscovery @Inject constructor(
                 override fun onDiscoveryStopped(serviceType: String) {}
 
                 override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
-                    _searching.value = false
+                    // Full teardown, not just the flag: the *other* listener of the pair may have
+                    // registered successfully, and the lock and worker are still live. stop() is
+                    // idempotent and unregisters whatever actually exists.
+                    stop()
                 }
 
                 override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {}
@@ -112,8 +122,8 @@ class MfdDiscovery @Inject constructor(
         }
     }
 
+    /** Idempotent: safe to call on a session that never fully started, or twice. */
     fun stop() {
-        if (!_searching.value && listeners.isEmpty()) return
         listeners.forEach {
             try {
                 nsd.stopServiceDiscovery(it)
@@ -129,17 +139,23 @@ class MfdDiscovery @Inject constructor(
     }
 
     private suspend fun resolve(info: NsdServiceInfo): NsdServiceInfo? =
-        suspendCancellableCoroutine { cont ->
-            @Suppress("DEPRECATION") // replacement requires API 34; this must run on 26+
-            nsd.resolveService(info, object : NsdManager.ResolveListener {
-                override fun onServiceResolved(resolved: NsdServiceInfo) {
-                    cont.resume(resolved)
-                }
+        // Bounded: NsdManager has a known failure mode where a resolve never calls back, and this
+        // worker is a single serial queue — one silent resolve would otherwise wedge discovery of
+        // everything behind it, forever, with nothing on screen to say why. On timeout this entry
+        // is skipped; the service will be re-found on the next scan.
+        withTimeoutOrNull(RESOLVE_TIMEOUT_MS) {
+            suspendCancellableCoroutine { cont ->
+                @Suppress("DEPRECATION") // replacement requires API 34; this must run on 26+
+                nsd.resolveService(info, object : NsdManager.ResolveListener {
+                    override fun onServiceResolved(resolved: NsdServiceInfo) {
+                        cont.resume(resolved)
+                    }
 
-                override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
-                    cont.resume(null)
-                }
-            })
+                    override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
+                        cont.resume(null)
+                    }
+                })
+            }
         }
 
     private fun merge(resolved: NsdServiceInfo) {
@@ -188,5 +204,9 @@ class MfdDiscovery @Inject constructor(
                 )
             }.sortedBy { it.host }
         }
+    }
+
+    private companion object {
+        const val RESOLVE_TIMEOUT_MS = 5_000L
     }
 }

@@ -58,11 +58,26 @@ class MainViewModel @Inject constructor(
     val remembered: StateFlow<List<RememberedDisplay>> =
         store.rememberedDisplays.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    /** The few most-recent displays the connect screen offers as one-tap buttons. */
+    /**
+     * The few most-recent displays the connect screen offers as one-tap buttons. Derived from
+     * [remembered] rather than collecting the DataStore a second time.
+     */
     val recentShortlist: StateFlow<List<RememberedDisplay>> =
-        store.rememberedDisplays
+        remembered
             .map { it.take(RECENT_BUTTONS) }
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /**
+     * Why the last session ended without the user asking it to, or null.
+     *
+     * Set when [RrcClient] exhausts its retry budget and gives the connection up as permanently
+     * broken — at which point the state machine returns to Idle, the UI lands back on the connect
+     * screen, and scanning resumes on its own. This is the sentence under the scan ring that
+     * tells the user *why* they are looking at the connect screen again. Cleared by the next
+     * successful connection or by an explicit user action.
+     */
+    private val _connectionLost = MutableStateFlow<String?>(null)
+    val connectionLost: StateFlow<String?> = _connectionLost.asStateFlow()
 
     /** True once a search has run its window and turned up nothing. */
     private val _discoveryTimedOut = MutableStateFlow(false)
@@ -162,10 +177,25 @@ class MainViewModel @Inject constructor(
             }
         }
 
-        // Persist every endpoint that actually connects, so it becomes a one-tap option next time.
+        // Persist every endpoint that actually connects, so it becomes a one-tap option next
+        // time — and notice when the connection loop gives a connection up as permanently broken.
+        // In that case the state returns to Idle, AppRoot lands back on the connect screen, and
+        // the connect screen's own mount effect resumes scanning; all this collector adds is the
+        // reason, so the screen can say why the session ended.
         viewModelScope.launch {
             rrc.state.collect { state ->
-                if (state is ConnectionState.Connected) store.remember(state.endpoint)
+                when (state) {
+                    is ConnectionState.Connected -> {
+                        store.remember(state.endpoint)
+                        _connectionLost.value = null
+                    }
+
+                    ConnectionState.Idle -> {
+                        rrc.consumeLoss()?.let { _connectionLost.value = it }
+                    }
+
+                    else -> {}
+                }
             }
         }
 
@@ -312,6 +342,7 @@ class MainViewModel @Inject constructor(
 
     fun connect(endpoint: MfdEndpoint) {
         autoConnectSuppressed = false
+        _connectionLost.value = null
         stopDiscovery()
         rrc.connect(endpoint)
     }
@@ -333,6 +364,7 @@ class MainViewModel @Inject constructor(
 
     fun disconnect() {
         autoConnectSuppressed = true
+        _connectionLost.value = null
         probeJob?.cancel()
         _probingRecents.value = false
         player.stop()
@@ -362,21 +394,6 @@ class MainViewModel @Inject constructor(
         selectPalette(HelmPalette.entries[(from.ordinal + 1) % HelmPalette.entries.size])
     }
 
-    /**
-     * Read a persisted palette name.
-     *
-     * The enum constants were renamed once (`DAY` and `DUSK` became [HelmPalette.HIGH_CONTRAST] and
-     * [HelmPalette.DARK]), and the name is what gets written to disk. Without the legacy mapping
-     * every existing install would silently fall back to the default on upgrade, which for anyone
-     * who had chosen high contrast means the app quietly stops being readable in sun.
-     */
-    private fun parsePalette(saved: String?): HelmPalette? = when (saved) {
-        null -> null
-        "DAY" -> HelmPalette.HIGH_CONTRAST
-        "DUSK" -> HelmPalette.DARK
-        else -> HelmPalette.entries.firstOrNull { it.name == saved }
-    }
-
     /** Choose a palette outright — what the named options in Settings do. */
     fun selectPalette(choice: HelmPalette) {
         palette = choice
@@ -392,8 +409,32 @@ class MainViewModel @Inject constructor(
 
     fun onVideoSurfaceReady(surface: Surface) {
         val endpoint = currentEndpoint() ?: return
-        if (mirroring) player.start(endpoint.rtspUrl, surface, transport)
+        if (mirroring) player.start(endpoint, surface, transportFor(endpoint))
     }
+
+    /**
+     * The transport to *open with* for this endpoint.
+     *
+     * TCP interleaving exists for exactly one situation: the project's own simulator, reached
+     * through an Android emulator's NAT, which cannot pass inbound UDP. Against a real display it
+     * is not merely suboptimal — the display accepts the SETUP and then never sends a single
+     * packet, which presents as a session that connects instantly and then waits forever.
+     *
+     * The setting is persisted, so a phone that was once pointed at the simulator carries it to
+     * the boat and video silently never starts. Restricting it to loopback-ish hosts means the
+     * preference can only do what it was meant for. [VideoPlayer] additionally falls back on its
+     * own if a session negotiates and no media follows, so a wrong guess here self-corrects.
+     */
+    private fun transportFor(endpoint: MfdEndpoint): RtpTransport =
+        if (transport == RtpTransport.TCP_INTERLEAVED && !isSimulatorHost(endpoint.host)) {
+            RtpTransport.UDP
+        } else {
+            transport
+        }
+
+    /** The AVD's host alias and loopback — the only places the simulator ever lives. */
+    private fun isSimulatorHost(host: String): Boolean =
+        host == "10.0.2.2" || host == "127.0.0.1" || host == "::1" || host == "localhost"
 
     fun onVideoSurfaceDestroyed() {
         player.stop()
@@ -412,7 +453,7 @@ class MainViewModel @Inject constructor(
     fun keyUp(key: MfdKey) = sendButton(key, KeyAction.UP)
 
     private fun sendButton(key: MfdKey, action: KeyAction) {
-        val endpoint = currentEndpoint() ?: return
+        val endpoint = connectedEndpoint() ?: return
         rrc.send(Rrc.button(key, action, endpoint.rrcVersion))
     }
 
@@ -422,7 +463,7 @@ class MainViewModel @Inject constructor(
      */
     fun zoomStep(step: Int, accumulated: Int) {
         noteSimAction(if (step > 0) "Zoom in" else "Zoom out")
-        val endpoint = currentEndpoint() ?: return
+        val endpoint = connectedEndpoint() ?: return
         rrc.send(Rrc.zoom(step, accumulated, endpoint.rrcVersion))
     }
 
@@ -434,7 +475,7 @@ class MainViewModel @Inject constructor(
     private var touchGesture: TouchGesture? = null
 
     fun videoTouchDown(x: Float, y: Float, width: Int, height: Int) {
-        val endpoint = currentEndpoint() ?: return
+        val endpoint = connectedEndpoint() ?: return
         val (nx, ny) = normalise(x, y, width, height)
         val gesture = TouchGesture(endpoint.rrcVersion)
         touchGesture = gesture
@@ -454,12 +495,26 @@ class MainViewModel @Inject constructor(
         rrc.send(gesture.up(nx, ny))
     }
 
+    /**
+     * The session's endpoint whatever the link is doing right now — what the *video pipeline*
+     * keys on, because video is brought up in parallel with control and owns its own retries.
+     */
     private fun currentEndpoint(): MfdEndpoint? = when (val s = connection.value) {
         is ConnectionState.Connected -> s.endpoint
         is ConnectionState.Connecting -> s.endpoint
         is ConnectionState.Reconnecting -> s.endpoint
         ConnectionState.Idle -> null
     }
+
+    /**
+     * The endpoint only while the control socket is actually open — what every *command* path
+     * keys on. During Connecting/Reconnecting the controls are shown dimmed and must genuinely do
+     * nothing: queueing a key press against a link that is down would either vanish silently or,
+     * worse, arrive as a stale command after the reconnect. The UI dims the controls to say so;
+     * this guard is what makes the promise true regardless of what the UI shows.
+     */
+    private fun connectedEndpoint(): MfdEndpoint? =
+        (connection.value as? ConnectionState.Connected)?.endpoint
 
     private companion object {
         // Long enough for a healthy network to answer, short enough not to feel hung. Manual
@@ -469,4 +524,22 @@ class MainViewModel @Inject constructor(
         /** How many remembered displays the connect screen offers as buttons. */
         const val RECENT_BUTTONS = 4
     }
+}
+
+/**
+ * Read a persisted palette name.
+ *
+ * The enum constants were renamed once (`DAY` and `DUSK` became [HelmPalette.HIGH_CONTRAST] and
+ * [HelmPalette.DARK]), and the name is what gets written to disk. Without the legacy mapping
+ * every existing install would silently fall back to the default on upgrade, which for anyone
+ * who had chosen high contrast means the app quietly stops being readable in sun.
+ *
+ * Top-level rather than a ViewModel method so the upgrade mapping — pure string logic with
+ * compatibility semantics — is testable on the JVM (`ParsePaletteTest`).
+ */
+internal fun parsePalette(saved: String?): HelmPalette? = when (saved) {
+    null -> null
+    "DAY" -> HelmPalette.HIGH_CONTRAST
+    "DUSK" -> HelmPalette.DARK
+    else -> HelmPalette.entries.firstOrNull { it.name == saved }
 }

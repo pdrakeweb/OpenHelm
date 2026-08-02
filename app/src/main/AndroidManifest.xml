@@ -11,12 +11,18 @@
     <!-- Multicast lock: many devices drop mDNS multicast unless one is held during discovery. -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
+    <!-- Backup is allowed *deliberately*, with explicit rules rather than the default sweep:
+         the only state worth carrying to a new phone is the DataStore (remembered displays,
+         their names, the chosen palette), and the rules say exactly that. -->
     <application
         android:name=".OpenHelmApplication"
         android:label="OpenHelm"
         android:icon="@mipmap/ic_launcher"
         android:theme="@style/Theme.OpenHelm"
         android:enableOnBackInvokedCallback="true"
+        android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:supportsRtl="true">
 
         <activity
