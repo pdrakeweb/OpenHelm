@@ -252,7 +252,7 @@ class VideoPlayer @Inject constructor(
                     // not one we can interrogate. Holding the port costs one idle socket.
                     coroutineScope {
                         launch { keepaliveLoop(session) }
-                        launch { statsLoop(decoder, transport) { discontinuities } }
+                        launch { statsLoop(decoder, transport, depacketizer) { discontinuities } }
                         receiveUdp(rtp, displayAddress, track.payloadType, depacketizer, decoder)
                     }
                 }
@@ -267,7 +267,7 @@ class VideoPlayer @Inject constructor(
                     socket.soTimeout = RTP_STALL_TIMEOUT_MS
                     coroutineScope {
                         launch { keepaliveLoop(session) }
-                        launch { statsLoop(decoder, transport) { discontinuities } }
+                        launch { statsLoop(decoder, transport, depacketizer) { discontinuities } }
                         launch(Dispatchers.IO) {
                             session.readInterleaved { datagram ->
                                 val packet = RtpPacket.parse(datagram)
@@ -378,8 +378,10 @@ class VideoPlayer @Inject constructor(
     private suspend fun statsLoop(
         decoder: H264Decoder,
         transport: RtpTransport,
+        depacketizer: RtpH264Depacketizer,
         discontinuities: () -> Long,
     ): Nothing {
+        var ticks = 0
         while (true) {
             val d = decoder.stats
             _stats.value = VideoStats(
@@ -391,6 +393,15 @@ class VideoPlayer @Inject constructor(
                 decodeMs = d.decodeMs,
                 transport = transport,
             )
+            // Say what the far end is doing, not just what we ended up with. A rising gap count
+            // with nothing decoded has several possible causes that look identical on screen, and
+            // the depacketizer is the only layer that can tell them apart.
+            ticks++
+            if (ticks <= 5 || ticks % 15 == 0) {
+                Log.i(TAG, "pipeline: ${depacketizer.diagnostics()} | " +
+                    "rendered=${d.rendered} dropped=${d.dropped} q=${d.queueDepth} " +
+                    "fps=${d.fps} decode=${d.decodeMs}ms")
+            }
             delay(1_000)
         }
     }

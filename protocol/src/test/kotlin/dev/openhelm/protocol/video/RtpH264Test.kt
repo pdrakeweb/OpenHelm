@@ -100,15 +100,68 @@ class RtpH264Test {
     }
 
     @Test
-    fun `marker lost between frames starts the next frame clean`() {
+    fun `a server that never sets the marker bit still produces access units`() {
+        // The failure this pins cost a sea trial. RFC 6184 says the marker SHOULD be set on the
+        // last packet of an access unit — and a real display's payloader does not. Treating the
+        // marker as the only frame boundary meant every completed frame was discarded when the
+        // next timestamp arrived, and counted as a discontinuity: hundreds of "gaps", zero
+        // decoded frames, on a link that was otherwise perfectly healthy.
         var discontinuities = 0
         val d = RtpH264Depacketizer { discontinuities++ }
+        val out = mutableListOf<ByteArray>()
+
+        // Several frames, two packets each, marker NEVER set — enough packets for the
+        // diagnostics to be able to call it.
+        var seq = 1
+        for (frame in 0 until 6) {
+            val ts = 1000L + frame * 3000
+            listOf(byteArrayOf(0x67, frame.toByte()), byteArrayOf(0x65, frame.toByte())).forEach { nal ->
+                d.feed(RtpPacket.parse(rtp(seq++, ts, marker = false, payload = nal))!!)?.let(out::add)
+            }
+        }
+        // A fourth frame's first packet is what closes frame 3.
+        d.feed(RtpPacket.parse(rtp(seq, 10_000, marker = false, payload = byteArrayOf(0x67, 9)))!!)
+            ?.let(out::add)
+
+        assertEquals(6, out.size, "expected one access unit per completed frame")
+        assertEquals(0, discontinuities, "a frame boundary is not a discontinuity")
+        out.forEach { assertTrue(containsIdr(it), "each access unit should carry its IDR slice") }
+
+        val diag = d.diagnostics()
+        assertEquals(0L, diag.markers)
+        assertEquals(6L, diag.unmarkedFrames)
+        assertEquals(0L, diag.markerTerminated)
+        assertTrue(diag.serverOmitsMarker, "diagnostics should name the cause")
+    }
+
+    @Test
+    fun `marker-terminated streams are unaffected and still emit immediately`() {
+        var discontinuities = 0
+        val d = RtpH264Depacketizer { discontinuities++ }
+        val nal = byteArrayOf(0x65, 1, 2)
+        val au = assertNotNull(d.feed(RtpPacket.parse(rtp(1, 100, marker = true, payload = nal))!!))
+        assertContentEquals(byteArrayOf(0, 0, 0, 1) + nal, au)
+        assertEquals(0, discontinuities)
+        val diag = d.diagnostics()
+        assertEquals(1L, diag.markerTerminated)
+        assertEquals(0L, diag.unmarkedFrames)
+        assertTrue(!diag.serverOmitsMarker, "a marked stream must not be reported as unmarked")
+    }
+
+    @Test
+    fun `a frame whose marker never arrives is emitted at the next timestamp, not discarded`() {
+        // This case used to be treated as loss: the unmarked frame was thrown away and counted as
+        // a discontinuity. It is not loss — the sequence numbers are unbroken and the frame is
+        // whole. The next timestamp is simply where it ends.
+        var discontinuities = 0
+        val d = RtpH264Depacketizer { discontinuities++ }
+
         // Frame at ts=600 whose marker packet never arrives (seq continuity intact).
         assertNull(d.feed(RtpPacket.parse(rtp(1, 600, false, byteArrayOf(0x41, 1)))!!))
-        // Next frame begins at ts=700.
+        // The next frame's first packet is what closes it.
         val au = d.feed(RtpPacket.parse(rtp(2, 700, true, byteArrayOf(0x41, 2)))!!)
         assertNotNull(au)
-        assertEquals(1, discontinuities)
-        assertContentEquals(byteArrayOf(0, 0, 0, 1, 0x41, 2), au)
+        assertEquals(0, discontinuities, "an unmarked frame boundary is not a discontinuity")
+        assertContentEquals(byteArrayOf(0, 0, 0, 1, 0x41, 1), au, "the ts=600 frame should come out")
     }
 }

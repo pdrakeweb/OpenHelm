@@ -80,13 +80,31 @@ public class RtpH264Depacketizer(private val onDiscontinuity: () -> Unit = {}) {
     private var fu: ByteArrayOutputStream? = null
 
     /**
-     * Feed one packet; returns a complete access unit (marker-terminated), or null while one is
-     * still assembling.
+     * Feed one packet; returns a complete access unit, or null while one is still assembling.
+     *
+     * An access unit is complete at **either** boundary RFC 3550 gives us:
+     *
+     * - the **marker bit**, which RFC 6184 says SHOULD be set on the last packet of an access
+     *   unit — the fast path, emitting the moment the frame ends; or
+     * - a **change of RTP timestamp**, which is definitive: every packet of one access unit
+     *   carries the same timestamp, so a new one means the previous frame is finished.
+     *
+     * Relying on the marker alone was a real defect, not a theoretical one. A display whose
+     * payloader does not set it produced a stream where every completed frame was discarded at
+     * the next timestamp and counted as a discontinuity — 388 of them and not one frame decoded,
+     * on a link that was otherwise perfectly healthy. "SHOULD" is not "MUST", and a client that
+     * treats it as MUST silently decodes nothing.
      */
     public fun feed(packet: RtpPacket): ByteArray? {
+        packetsFed++
+        if (packet.marker) markersSeen++
+
+        var completed: ByteArray? = null
+
         expectedSeq?.let { expected ->
             if (packet.sequence != expected) {
                 // Loss or reorder: either way the AU in progress is unusable.
+                sequenceGaps++
                 dropInProgress()
                 onDiscontinuity()
             }
@@ -94,18 +112,24 @@ public class RtpH264Depacketizer(private val onDiscontinuity: () -> Unit = {}) {
         expectedSeq = (packet.sequence + 1) and 0xFFFF
 
         if (packet.timestamp != currentTimestamp) {
-            // New frame began without a marker on the old one (or after loss): flush nothing,
-            // start clean. Emitting a partial AU risks decoding a torn picture.
             if (currentTimestamp != -1L && nals.isNotEmpty()) {
-                nals.clear()
-                onDiscontinuity()
+                if (fu != null) {
+                    // A fragment run was cut off part-way through: this frame really is torn, and
+                    // emitting it would decode a broken picture.
+                    dropInProgress()
+                    onDiscontinuity()
+                } else {
+                    // A whole frame that simply never carried a marker. Emit it.
+                    unmarkedFrames++
+                    completed = assembleAccessUnit()
+                }
             }
             fu = null
             currentTimestamp = packet.timestamp
         }
 
         val p = packet.payload
-        if (p.isEmpty()) return null
+        if (p.isEmpty()) return completed
         when (val nalType = p[0].toInt() and 0x1F) {
             in 1..23 -> nals.add(START_CODE + p)
 
@@ -121,7 +145,7 @@ public class RtpH264Depacketizer(private val onDiscontinuity: () -> Unit = {}) {
             }
 
             28 -> { // FU-A
-                if (p.size < 2) return null
+                if (p.size < 2) return completed
                 val fuHeader = p[1].toInt() and 0xFF
                 val start = fuHeader and 0x80 != 0
                 val end = fuHeader and 0x40 != 0
@@ -134,7 +158,7 @@ public class RtpH264Depacketizer(private val onDiscontinuity: () -> Unit = {}) {
                     }
                 } else {
                     val buf = fu
-                        ?: return null // continuation without a start: mid-loss, skip
+                        ?: return completed // continuation without a start: mid-loss, skip
                     buf.write(p, 2, p.size - 2)
                 }
                 if (end) {
@@ -143,8 +167,14 @@ public class RtpH264Depacketizer(private val onDiscontinuity: () -> Unit = {}) {
                 }
             }
 
-            else -> return null // FU-B, MTAP: not emitted by any server this talks to
+            else -> return completed // FU-B, MTAP: not emitted by any server this talks to
         }
+
+        // A frame completed by the timestamp boundary above takes precedence: it is the older of
+        // the two and must be delivered in order. The packet just collected stays in `nals` and
+        // leaves at the next boundary. This can only arise from a server that sets the marker
+        // intermittently, and costs that frame one packet interval rather than losing it.
+        if (completed != null) return completed
 
         if (!packet.marker) return null
         if (fu != null) {
@@ -155,6 +185,12 @@ public class RtpH264Depacketizer(private val onDiscontinuity: () -> Unit = {}) {
         }
         if (nals.isEmpty()) return null
 
+        markerTerminated++
+        return assembleAccessUnit()
+    }
+
+    /** Concatenate the collected NAL units into one access unit and reset for the next frame. */
+    private fun assembleAccessUnit(): ByteArray {
         val total = nals.sumOf { it.size }
         val au = ByteArray(total)
         var pos = 0
@@ -163,9 +199,49 @@ public class RtpH264Depacketizer(private val onDiscontinuity: () -> Unit = {}) {
             pos += nal.size
         }
         nals.clear()
-        currentTimestamp = -1
+        accessUnitsEmitted++
         return au
     }
+
+    // ---- diagnostics --------------------------------------------------------------------
+    //
+    // These exist because "no video" was, for one whole sea trial, indistinguishable from "video
+    // still starting": the pipeline was healthy at every layer anyone could see, and the only
+    // symptom of the marker-bit assumption was a counter going up. Whether a server marks its
+    // access units is now something the app can *report*, not something a human has to infer.
+
+    private var packetsFed = 0L
+    private var markersSeen = 0L
+    private var sequenceGaps = 0L
+    private var markerTerminated = 0L
+    private var unmarkedFrames = 0L
+    private var accessUnitsEmitted = 0L
+
+    /** A snapshot of how the far end is behaving, for logging. */
+    public data class Diagnostics(
+        val packets: Long,
+        val markers: Long,
+        val sequenceGaps: Long,
+        val accessUnits: Long,
+        val markerTerminated: Long,
+        val unmarkedFrames: Long,
+    ) {
+        /**
+         * True when packets are arriving and the server is not marking access-unit ends.
+         *
+         * Ten packets is several frames' worth — a marking server sets one per frame, so a run
+         * that long with none is conclusive enough for a log line.
+         */
+        public val serverOmitsMarker: Boolean get() = packets >= 10 && markers == 0L
+
+        override fun toString(): String = "packets=$packets markers=$markers seqGaps=$sequenceGaps " +
+            "aus=$accessUnits (byMarker=$markerTerminated byTimestamp=$unmarkedFrames)" +
+            if (serverOmitsMarker) " [server sets no RTP marker — using timestamp boundaries]" else ""
+    }
+
+    public fun diagnostics(): Diagnostics = Diagnostics(
+        packetsFed, markersSeen, sequenceGaps, accessUnitsEmitted, markerTerminated, unmarkedFrames,
+    )
 
     private fun dropInProgress() {
         nals.clear()
