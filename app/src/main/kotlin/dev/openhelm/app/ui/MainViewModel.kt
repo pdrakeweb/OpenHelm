@@ -23,8 +23,10 @@ import dev.openhelm.protocol.KeyAction
 import dev.openhelm.protocol.MfdEndpoint
 import dev.openhelm.protocol.MfdKey
 import dev.openhelm.protocol.Rrc
+import dev.openhelm.protocol.TOUCH_MAX
 import dev.openhelm.protocol.TouchGesture
 import dev.openhelm.protocol.normalise
+import java.util.Locale
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Job
@@ -525,6 +527,24 @@ class MainViewModel @Inject constructor(
     private var touchDownAtMs = 0L
     private var touchUpJob: Job? = null
 
+    /**
+     * The last touch put on the wire, as a position on the picture — for the diagnostics overlay.
+     *
+     * A field report of taps landing in the wrong place needed a way to tell two very different
+     * faults apart: the app computing the wrong position, or the display reading a correct one
+     * differently. This is the first half, stated in the same units the user can see — the
+     * percentage across the picture, which they can compare against where their finger was
+     * without a laptop on the boat network.
+     */
+    var lastTouchSent: String? by mutableStateOf(null)
+        private set
+
+    private fun noteTouch(phase: String, nx: Int, ny: Int) {
+        lastTouchSent = "touch %s %.1f%%,%.1f%% (%d,%d)".format(
+            Locale.ROOT, phase, nx * 100f / TOUCH_MAX, ny * 100f / TOUCH_MAX, nx, ny,
+        )
+    }
+
     fun videoTouchDown(x: Float, y: Float, width: Int, height: Int) {
         val endpoint = connectedEndpoint() ?: return
         val (nx, ny) = normalise(x, y, width, height)
@@ -532,12 +552,14 @@ class MainViewModel @Inject constructor(
         touchGesture = gesture
         touchUpJob?.cancel()
         touchDownAtMs = SystemClock.uptimeMillis()
+        noteTouch("↓", nx, ny)
         rrc.send(gesture.down(nx, ny))
     }
 
     fun videoTouchMove(x: Float, y: Float, width: Int, height: Int) {
         val gesture = touchGesture ?: return
         val (nx, ny) = normalise(x, y, width, height)
+        noteTouch("→", nx, ny)
         rrc.send(gesture.move(nx, ny))
     }
 
@@ -559,6 +581,7 @@ class MainViewModel @Inject constructor(
         touchGesture = null
         val (nx, ny) = normalise(x, y, width, height)
         val held = SystemClock.uptimeMillis() - touchDownAtMs
+        noteTouch("↑", nx, ny)
         if (held >= MIN_TOUCH_DWELL_MS) {
             rrc.send(gesture.up(nx, ny))
             return

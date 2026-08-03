@@ -146,8 +146,17 @@ fun RemoteScreen(viewModel: MainViewModel, state: ConnectionState, palette: Helm
  * session and the decoder all keep running, and dismissing this reveals a picture that never
  * stopped.
  *
- * Opaque and touch-consuming: the rail and the panel are still there behind it, and a stray tap
- * landing on Disconnect through a settings screen would be a genuinely bad surprise.
+ * Opaque and hit-test-blocking: the rail and the panel are still there behind it, and a stray tap
+ * landing on Disconnect through a settings screen would be a genuinely bad surprise. Drawing over
+ * them is not enough to stop that — Compose hit-tests siblings by position, not by what is painted
+ * on top, so an overlay with no pointer-input modifier at all lets touches fall straight through to
+ * the video pane behind it.
+ *
+ * The modifier is therefore present but **inert**. An earlier version had it swallow every pointer
+ * change for the whole gesture, which blocked the thing it was sitting on top of: the settings list
+ * could not be scrolled, so during a session every option below the fold — diagnostics, the
+ * remembered displays, Forget — was simply unreachable. Registering the node is what blocks the
+ * fall-through; consuming events was never part of it, and consuming them cost the list its drags.
  */
 @Composable
 private fun SessionSettingsOverlay(
@@ -159,16 +168,7 @@ private fun SessionSettingsOverlay(
         Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        event.changes.forEach { it.consume() }
-                        if (event.changes.none { it.pressed }) break
-                    }
-                }
-            },
+            .pointerInput(Unit) { /* deliberately empty — see above */ },
     ) {
         SettingsScreen(viewModel, palette, onDone = onDone)
     }

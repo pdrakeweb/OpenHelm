@@ -247,6 +247,15 @@ fun VideoPane(viewModel: MainViewModel, palette: HelmPalette, modifier: Modifier
                     // Locale.ROOT: a comma-decimal locale would render "×1,5".
                     if (scale > 1f) append(" · ×").append(String.format(Locale.ROOT, "%.1f", scale))
                     if (stats.transport == RtpTransport.TCP_INTERLEAVED) append(" · TCP (sim)")
+                    // What the last touch actually put on the wire, as a position on the picture.
+                    //
+                    // Added for a field report of taps landing in the wrong place. The app's own
+                    // arithmetic was measured and is exact — a tap at 75.0% of the pane sends
+                    // 75.0%, edge to edge, on both axes — which means the interesting question is
+                    // no longer "what did the app compute" but "does what it sent agree with where
+                    // the finger was". This line answers that on the boat, without a laptop on the
+                    // network: tap a landmark, read the percentage, compare it with your finger.
+                    viewModel.lastTouchSent?.let { append("\n").append(it) }
                 },
                 color = Color(0xFFE8EEF4),
                 fontSize = 11.sp,
