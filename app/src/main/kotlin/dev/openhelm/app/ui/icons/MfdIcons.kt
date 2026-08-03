@@ -397,6 +397,104 @@ object MfdIcons {
         }
     }
 
+    /**
+     * A lit indicator: a solid centre inside a ring. "Showing, whatever happens."
+     *
+     * Deliberately not an eye. An eye reads as *visibility of the thing behind*, and what this
+     * option governs is whether a readout is drawn at all — a lamp is the closer metaphor and a
+     * far more legible shape at 24dp.
+     */
+    val AlwaysOn: ImageVector by lazy {
+        icon("AlwaysOn") {
+            path(fill = black, pathFillType = PathFillType.EvenOdd) {
+                circle(12f, 12f, 9f)
+                circle(12f, 12f, 6.5f)
+            }
+            path(fill = black) { circle(12f, 12f, 4f) }
+        }
+    }
+
+    /** A clock: the option that waits, and speaks only once time has passed. */
+    val WhenLate: ImageVector by lazy {
+        icon("WhenLate") {
+            path(fill = black, pathFillType = PathFillType.EvenOdd) {
+                circle(12f, 12f, 9f)
+                circle(12f, 12f, 7f)
+            }
+            path(
+                fill = black,
+                stroke = black,
+                strokeLineWidth = 1.8f,
+                strokeLineCap = StrokeCap.Round,
+            ) {
+                moveTo(12f, 7.2f)
+                lineTo(12f, 12f)
+                lineTo(15.4f, 14.2f)
+            }
+        }
+    }
+
+    /** A ring struck through: nothing is drawn. The universal "off". */
+    val NotShown: ImageVector by lazy {
+        icon("NotShown") {
+            path(fill = black, pathFillType = PathFillType.EvenOdd) {
+                circle(12f, 12f, 9f)
+                circle(12f, 12f, 6.8f)
+            }
+            path(
+                fill = black,
+                stroke = black,
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+            ) {
+                moveTo(6.6f, 17.4f)
+                lineTo(17.4f, 6.6f)
+            }
+        }
+    }
+
+    /**
+     * A bin: forgetting a remembered display.
+     *
+     * Paired with a confirmation, never on its own — this is the one control on the settings screen
+     * that destroys something the user typed.
+     */
+    val Forget: ImageVector by lazy {
+        icon("Forget") {
+            path(fill = black) {
+                // Lid, with the handle above it.
+                moveTo(4.5f, 6f)
+                lineTo(19.5f, 6f)
+                lineTo(19.5f, 8f)
+                lineTo(4.5f, 8f)
+                close()
+                moveTo(9.5f, 3.5f)
+                lineTo(14.5f, 3.5f)
+                lineTo(14.5f, 5f)
+                lineTo(9.5f, 5f)
+                close()
+            }
+            path(fill = black, pathFillType = PathFillType.EvenOdd) {
+                // Body, with two slots cut out of it.
+                moveTo(6f, 9.5f)
+                lineTo(18f, 9.5f)
+                lineTo(16.8f, 20.5f)
+                lineTo(7.2f, 20.5f)
+                close()
+                moveTo(10f, 11.5f)
+                lineTo(11.3f, 11.5f)
+                lineTo(11.3f, 18.5f)
+                lineTo(10f, 18.5f)
+                close()
+                moveTo(12.7f, 11.5f)
+                lineTo(14f, 11.5f)
+                lineTo(14f, 18.5f)
+                lineTo(12.7f, 18.5f)
+                close()
+            }
+        }
+    }
+
     // ---- shared shape helpers -------------------------------------------------------------
 
     /** The magnifier body shared by [ZoomIn] and [ZoomOut], so the two are exactly consistent. */

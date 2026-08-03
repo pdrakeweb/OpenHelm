@@ -10,13 +10,13 @@ package dev.openhelm.app.ui
  */
 enum class DelayNotification(val label: String, val detail: String) {
     /** Show the delay at all times, whatever it is. */
-    ALWAYS("Always", "Constant readout"),
+    ALWAYS("Always", "The delay is shown constantly, however small it is."),
 
     /** Show it only once the delay reaches the threshold. The default. */
-    WHEN_DELAYED("When late", "Appears if it falls behind"),
+    WHEN_DELAYED("When late", "Nothing is shown until the picture falls behind."),
 
     /** Never show it. */
-    OFF("Off", "No readout"),
+    OFF("Off", "The delay is never shown."),
 }
 
 /** What a fresh install does: stay quiet, speak up when the picture falls behind. */

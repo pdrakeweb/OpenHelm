@@ -93,6 +93,21 @@ class PaletteContrastTest {
         // whose entire purpose is being readable in glare. Measuring against the chip would have
         // passed and told us nothing; the surface behind is the one that matters.
         assertContrast("$p selection outline/card", s.primary, s.surfaceVariant, large)
+
+        // The selected segment of a track that is currently *disabled*, e.g. the delay threshold
+        // while the warning is switched off.
+        //
+        // This one also failed in practice. Material's `disabledActiveContainerColor` defaults to
+        // `activeContainerColor`, so the fill stayed full-strength navy while only the content
+        // dropped to 38% — near-black on navy, about 1.3:1. A disabled control still has to say
+        // what it is set to, so it is held to the same bar as any other label here rather than
+        // taking WCAG's exemption for disabled components.
+        assertContrast(
+            "$p disabled selection content/fill",
+            s.onSurfaceVariant,
+            disabledSelectedFill(s.primaryContainer, s.surfaceVariant),
+            body,
+        )
     }
 
     @Test

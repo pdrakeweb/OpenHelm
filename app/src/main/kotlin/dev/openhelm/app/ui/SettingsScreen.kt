@@ -28,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonColors
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
@@ -43,6 +44,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -203,6 +206,153 @@ fun SettingsScreen(
 private fun SelectionOutline(): Color = MaterialTheme.colorScheme.primary
 
 /**
+ * The three light conditions, in the cycle order the status-bar button steps through.
+ *
+ * The captions are the reason each palette exists rather than what it looks like: someone choosing
+ * one is answering "where am I and what is the light doing", not picking a colour they like.
+ */
+private val PaletteOptions = listOf(
+    TrackOption(HelmPalette.HIGH_CONTRAST, "Bright", MfdIcons.PaletteDay, "Direct sun."),
+    TrackOption(HelmPalette.DARK, "Dark", MfdIcons.PaletteDusk, "Overcast, or below decks."),
+    TrackOption(HelmPalette.NIGHT, "Night", MfdIcons.PaletteNight, "Red, to keep night vision."),
+)
+
+private val DelayModeOptions = DelayNotification.entries.map { mode ->
+    TrackOption(
+        value = mode,
+        label = mode.label,
+        icon = when (mode) {
+            DelayNotification.ALWAYS -> MfdIcons.AlwaysOn
+            DelayNotification.WHEN_DELAYED -> MfdIcons.WhenLate
+            DelayNotification.OFF -> MfdIcons.NotShown
+        },
+        detail = mode.detail,
+    )
+}
+
+/**
+ * The colours every segmented track on this screen draws with, enabled and disabled.
+ *
+ * Material's own disabled defaults are wrong here, and quietly so: `disabledActiveContainerColor`
+ * defaults to `activeContainerColor`, so a disabled track keeps its full-strength selected fill
+ * while only the *content* drops to 38%. On the bright palette that put near-black text on a solid
+ * navy segment — about 1.3:1, i.e. the selected value became unreadable at the exact moment the
+ * user most needs to see what it still is.
+ *
+ * So the fill is dimmed and the content is not. A disabled control still has to answer "what is
+ * this set to"; only "can I change it" is in question, and that is carried by the washed-out fill
+ * and the faded unselected segments around it. WCAG exempts disabled controls from its contrast
+ * floors, but a screen meant to be read in direct sun is the wrong place to take that exemption.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun trackColors(outline: Color): SegmentedButtonColors {
+    val scheme = MaterialTheme.colorScheme
+    // Every track sits on a surfaceVariant card, so that is what a translucent colour lands on.
+    val card = scheme.surfaceVariant
+    return SegmentedButtonDefaults.colors(
+        activeContainerColor = scheme.primaryContainer,
+        activeContentColor = scheme.onPrimaryContainer,
+        activeBorderColor = outline,
+        disabledActiveContainerColor = disabledSelectedFill(scheme.primaryContainer, card),
+        disabledActiveContentColor = scheme.onSurfaceVariant,
+        disabledActiveBorderColor = outline.copy(alpha = 0.40f).compositeOver(card),
+        disabledInactiveContentColor = scheme.onSurfaceVariant.copy(alpha = 0.50f),
+        disabledInactiveBorderColor = scheme.outline.copy(alpha = 0.40f).compositeOver(card),
+    )
+}
+
+/**
+ * The fill behind the selected segment of a track that cannot currently be changed.
+ *
+ * A fifth-strength wash of the selected colour over the card: enough tint to say *this* is the
+ * value, far too little to read as something you can press. Kept separate from [trackColors] so
+ * the contrast test can measure the colour the app actually draws rather than restate the blend.
+ */
+internal fun disabledSelectedFill(selected: Color, card: Color): Color =
+    selected.copy(alpha = 0.20f).compositeOver(card)
+
+/** One option on a [ChoiceTrack]. */
+internal data class TrackOption<T>(
+    val value: T,
+    val label: String,
+    val icon: ImageVector?,
+    /** The line shown under the track while this option is the selected one. */
+    val detail: String? = null,
+)
+
+/**
+ * A row of mutually exclusive options as one connected track, with the chosen one's explanation
+ * on a line beneath.
+ *
+ * Every multi-choice setting on this screen uses it, so they cannot drift apart. Three properties
+ * are load-bearing rather than decorative:
+ *
+ * - **One track, not N buttons.** Separate lozenges read as separate decisions; a divided track
+ *   reads as one choice among alternatives, which is what it is.
+ * - **Selection is marked three ways** — a filled segment, its icon, and a border in
+ *   [SelectionOutline]. Never by one cue alone: fill can collapse in glare, and an outline that
+ *   contrasts with the segment can still vanish against the card behind it, which is exactly the
+ *   defect that made the bright palette's selection invisible.
+ * - **The caption lives under the track, not inside it.** A segment cannot hold two lines without
+ *   becoming the row of fat buttons this replaced, and the explanation is worth keeping: it is
+ *   what tells a first-time user what "When late" actually does.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun <T> ChoiceTrack(
+    options: List<TrackOption<T>>,
+    selected: T,
+    onSelect: (T) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    val colors = trackColors(SelectionOutline())
+    Column(modifier) {
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().height(MinHelmTarget)) {
+            options.forEachIndexed { index, option ->
+                val isSelected = option.value == selected
+                SegmentedButton(
+                    selected = isSelected,
+                    onClick = { onSelect(option.value) },
+                    enabled = enabled,
+                    shape = SegmentedButtonDefaults.itemShape(index, options.size),
+                    colors = colors,
+                    icon = {
+                        // Material puts a tick here by default when selected, which would replace
+                        // the icon that identifies the option. The icon is the more useful of the
+                        // two: the fill and the border already say which one is chosen, and only
+                        // the glyph says *what it is* at a glance.
+                        if (option.icon != null) {
+                            Icon(option.icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                        }
+                    },
+                    modifier = Modifier.semantics {
+                        stateDescription = if (isSelected) "Selected" else "Not selected"
+                    },
+                ) {
+                    Text(
+                        option.label,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+
+        options.firstOrNull { it.value == selected }?.detail?.let { detail ->
+            Spacer(Modifier.size(6.dp))
+            Text(
+                detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/**
  * Day / dusk / night, as three named choices you can see all of at once.
  *
  * The status bar carries the same setting as a one-tap cycle, because mid-passage is when it is
@@ -234,89 +384,10 @@ private fun PaletteSection(palette: HelmPalette, onSelect: (HelmPalette) -> Unit
                 )
             }
 
-            // IntrinsicSize.Max so all three match the tallest, rather than each sizing to its own
-            // caption: "Direct sun" is one line and the others wrap to two, which left the row
-            // looking like three unrelated buttons.
-            Row(
-                Modifier.height(IntrinsicSize.Max),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                PaletteChoice(HelmPalette.HIGH_CONTRAST, "Bright", "Direct sun", palette, onSelect, Modifier.weight(1f))
-                PaletteChoice(HelmPalette.DARK, "Dark", "Overcast, below decks", palette, onSelect, Modifier.weight(1f))
-                PaletteChoice(HelmPalette.NIGHT, "Night", "Red, night vision", palette, onSelect, Modifier.weight(1f))
-            }
-        }
-    }
-}
-
-/**
- * One palette option.
- *
- * Selection is carried by a **tick and a border**, plus a spoken selected state — never by fill
- * alone. A filled `Button` for the chosen one was the first attempt and made the selected chip the
- * brightest object on the screen, which is a poor way to present the control whose job is removing
- * bright objects. Falling back to the container colour was the second, and failed differently: in
- * the bright palette every container is a dark slab by design, so `primaryContainer` and
- * `secondaryContainer` sit within a shade of each other and the selected chip was
- * indistinguishable. The tick owes nothing to the palette, and the border is drawn in the
- * container's *content* colour so it contrasts with the chip by construction in all three.
- */
-@Composable
-private fun PaletteChoice(
-    value: HelmPalette,
-    label: String,
-    detail: String,
-    current: HelmPalette,
-    onSelect: (HelmPalette) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val selected = value == current
-    val icon = when (value) {
-        HelmPalette.HIGH_CONTRAST -> MfdIcons.PaletteDay
-        HelmPalette.DARK -> MfdIcons.PaletteDusk
-        HelmPalette.NIGHT -> MfdIcons.PaletteNight
-    }
-
-    FilledTonalButton(
-        onClick = { onSelect(value) },
-        modifier = modifier
-            .fillMaxHeight()
-            .heightIn(min = 84.dp)
-            .semantics {
-                role = Role.RadioButton
-                this.selected = selected
-                stateDescription = if (selected) "Selected" else "Not selected"
-            },
-        colors = if (selected) {
-            ButtonDefaults.filledTonalButtonColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
-        } else {
-            ButtonDefaults.filledTonalButtonColors()
-        },
-        border = if (selected) BorderStroke(2.dp, SelectionOutline()) else null,
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
-            Spacer(Modifier.size(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (selected) {
-                    Icon(MfdIcons.Confirm, contentDescription = null, modifier = Modifier.size(15.dp))
-                    Spacer(Modifier.size(4.dp))
-                }
-                Text(
-                    label,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                    maxLines = 1,
-                )
-            }
-            Text(
-                detail,
-                style = MaterialTheme.typography.labelSmall,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
+            ChoiceTrack(
+                options = PaletteOptions,
+                selected = palette,
+                onSelect = onSelect,
             )
         }
     }
@@ -395,21 +466,11 @@ private fun DelaySection(
                 )
             }
 
-            // IntrinsicSize.Max so the three match the tallest rather than each sizing to its own
-            // caption — the same reason the palette row does it.
-            Row(
-                Modifier.height(IntrinsicSize.Max),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                DelayNotification.entries.forEach { option ->
-                    DelayModeChoice(
-                        value = option,
-                        current = mode,
-                        onSelect = onSelectMode,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
+            ChoiceTrack(
+                options = DelayModeOptions,
+                selected = mode,
+                onSelect = onSelectMode,
+            )
 
             val thresholdEnabled = mode != DelayNotification.OFF
             Column {
@@ -454,7 +515,7 @@ private fun ThresholdTrack(
     enabled: Boolean,
     onSelect: (Int) -> Unit,
 ) {
-    val outline = SelectionOutline()
+    val colors = trackColors(SelectionOutline())
     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().height(MinHelmTarget)) {
         DelayThresholdChoices.forEachIndexed { index, seconds ->
             val isSelected = seconds == selected
@@ -463,11 +524,7 @@ private fun ThresholdTrack(
                 onClick = { onSelect(seconds) },
                 enabled = enabled,
                 shape = SegmentedButtonDefaults.itemShape(index, DelayThresholdChoices.size),
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                    activeContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    activeBorderColor = outline,
-                ),
+                colors = colors,
                 modifier = Modifier.semantics {
                     stateDescription = if (isSelected) "Selected" else "Not selected"
                 },
@@ -479,64 +536,6 @@ private fun ThresholdTrack(
                     maxLines = 1,
                 )
             }
-        }
-    }
-}
-
-/**
- * One of the three delay-notification options.
- *
- * Marked by a tick and a border rather than fill alone, for the same reason the palette choices
- * are: in the bright palette every container is a dark slab by design, so selection carried by
- * container colour alone is invisible exactly where legibility matters most.
- */
-@Composable
-private fun DelayModeChoice(
-    value: DelayNotification,
-    current: DelayNotification,
-    onSelect: (DelayNotification) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val selected = value == current
-    FilledTonalButton(
-        onClick = { onSelect(value) },
-        modifier = modifier
-            .fillMaxHeight()
-            .heightIn(min = 76.dp)
-            .semantics {
-                role = Role.RadioButton
-                this.selected = selected
-                stateDescription = if (selected) "Selected" else "Not selected"
-            },
-        colors = if (selected) {
-            ButtonDefaults.filledTonalButtonColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
-        } else {
-            ButtonDefaults.filledTonalButtonColors()
-        },
-        border = if (selected) BorderStroke(2.dp, SelectionOutline()) else null,
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (selected) {
-                    Icon(MfdIcons.Confirm, contentDescription = null, modifier = Modifier.size(15.dp))
-                    Spacer(Modifier.size(4.dp))
-                }
-                Text(
-                    value.label,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                    maxLines = 1,
-                )
-            }
-            Text(
-                value.detail,
-                style = MaterialTheme.typography.labelSmall,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-            )
         }
     }
 }
@@ -628,7 +627,11 @@ private fun DisplaySettingRow(
                     onClick = { onSaveName(name) },
                     enabled = dirty,
                     modifier = Modifier.height(MinHelmTarget),
-                ) { Text("Save") }
+                ) {
+                    Icon(MfdIcons.Confirm, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.size(8.dp))
+                    Text("Save")
+                }
                 Spacer(Modifier.weight(1f))
                 TextButton(
                     onClick = { confirmForget = true },
@@ -636,7 +639,11 @@ private fun DisplaySettingRow(
                     colors = ButtonDefaults.textButtonColors(
                         contentColor = MaterialTheme.colorScheme.error,
                     ),
-                ) { Text("Forget") }
+                ) {
+                    Icon(MfdIcons.Forget, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.size(8.dp))
+                    Text("Forget")
+                }
             }
         }
     }
