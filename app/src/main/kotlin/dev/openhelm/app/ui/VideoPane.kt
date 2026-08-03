@@ -259,12 +259,22 @@ fun VideoPane(viewModel: MainViewModel, palette: HelmPalette, modifier: Modifier
             )
         }
 
-        // How far behind the picture is. On by default — unlike the diagnostics above, this is not
-        // engineering detail: a chart that is a second old is a different thing to navigate by
-        // than a live one, and the number is the only way to know which you are looking at.
-        if (videoState == VideoState.Streaming && stats.latencyMs > 0) {
+        // How far behind the picture is. Not engineering detail like the counters above: a chart
+        // that is seconds old is a different thing to navigate by than a live one, and nothing
+        // else on screen distinguishes them. When it appears is the user's call — by default it
+        // stays out of the way until the picture is actually late (see DelayNotification).
+        val thresholdMs = viewModel.delayThresholdSeconds * 1_000
+        val late = stats.latencyMs >= thresholdMs
+        val showDelay = videoState == VideoState.Streaming && stats.latencyMs > 0 &&
+            when (viewModel.delayNotification) {
+                DelayNotification.ALWAYS -> true
+                DelayNotification.WHEN_DELAYED -> late
+                DelayNotification.OFF -> false
+            }
+        if (showDelay) {
             DelayReadout(
                 millis = stats.latencyMs,
+                late = late,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp),
             )
         }
@@ -284,12 +294,12 @@ fun VideoPane(viewModel: MainViewModel, palette: HelmPalette, modifier: Modifier
  * number, on a readout whose whole job is to be trusted. So the true lag is *at least* this, and
  * the wording says "at least" rather than implying precision it does not have.
  *
- * Amber past a second, because that is roughly where a chart stops being something to steer by and
- * starts being something to check against.
+ * Turns amber once [late] — past the threshold the user set, which is where they have decided a
+ * chart stops being something to steer by and starts being something to check against.
  */
 @Composable
-private fun DelayReadout(millis: Int, modifier: Modifier = Modifier) {
-    val warn = millis >= DELAY_WARN_MS
+private fun DelayReadout(millis: Int, late: Boolean, modifier: Modifier = Modifier) {
+    val warn = late
     // Milliseconds below a second. A pipeline running well is tens of milliseconds behind, and
     // rendering that as "0.0 s" throws away the entire measurement precisely when it is the good
     // news — the number exists to distinguish a live picture from a stale one, so it has to stay
@@ -310,9 +320,6 @@ private fun DelayReadout(millis: Int, modifier: Modifier = Modifier) {
         fontWeight = if (warn) FontWeight.Bold else FontWeight.Normal,
     )
 }
-
-/** Where a delay stops being a detail and starts being worth noticing. */
-private const val DELAY_WARN_MS = 1_000
 
 /**
  * Video never started — as distinct from video that started and then froze.

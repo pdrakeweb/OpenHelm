@@ -117,6 +117,15 @@ fun SettingsScreen(viewModel: MainViewModel, palette: HelmPalette) {
                 )
             }
 
+            item(key = "delay") {
+                DelaySection(
+                    mode = viewModel.delayNotification,
+                    thresholdSeconds = viewModel.delayThresholdSeconds,
+                    onSelectMode = viewModel::selectDelayNotification,
+                    onSelectThreshold = viewModel::selectDelayThreshold,
+                )
+            }
+
             item(key = "diagnostics") {
                 DiagnosticsSection(
                     enabled = viewModel.showDiagnostics,
@@ -319,6 +328,168 @@ private fun SimulationSection(enabled: Boolean, onToggle: (Boolean) -> Unit) {
             }
             Spacer(Modifier.size(16.dp))
             Switch(checked = enabled, onCheckedChange = onToggle)
+        }
+    }
+}
+
+/**
+ * When to be told the picture has fallen behind, and by how much before it counts.
+ *
+ * The two halves belong together: "when late" is meaningless without saying what late is, and a
+ * threshold is meaningless if the readout never appears. They are one card for that reason.
+ *
+ * The threshold stays visible and usable in **Always** as well as **When late** — in Always it is
+ * what turns the readout amber — and is only greyed for **Off**, where nothing is shown at all.
+ */
+@Composable
+private fun DelaySection(
+    mode: DelayNotification,
+    thresholdSeconds: Int,
+    onSelectMode: (DelayNotification) -> Unit,
+    onSelectThreshold: (Int) -> Unit,
+) {
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column {
+                Text(
+                    "Delay warning",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Medium,
+                )
+                Spacer(Modifier.size(4.dp))
+                Text(
+                    "The mirrored picture always trails the display a little. This says how far " +
+                        "behind it is, in the corner of the video.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            // IntrinsicSize.Max so the three match the tallest rather than each sizing to its own
+            // caption — the same reason the palette row does it.
+            Row(
+                Modifier.height(IntrinsicSize.Max),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                DelayNotification.entries.forEach { option ->
+                    DelayModeChoice(
+                        value = option,
+                        current = mode,
+                        onSelect = onSelectMode,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+
+            val thresholdEnabled = mode != DelayNotification.OFF
+            Column {
+                Text(
+                    if (mode == DelayNotification.ALWAYS) "Count as late after" else "Show it after",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = if (thresholdEnabled) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+                Spacer(Modifier.size(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DelayThresholdChoices.forEach { seconds ->
+                        val selected = seconds == thresholdSeconds
+                        FilledTonalButton(
+                            onClick = { onSelectThreshold(seconds) },
+                            enabled = thresholdEnabled,
+                            modifier = Modifier
+                                .height(MinHelmTarget)
+                                .semantics {
+                                    role = Role.RadioButton
+                                    this.selected = selected
+                                    stateDescription = if (selected) "Selected" else "Not selected"
+                                },
+                            colors = if (selected) {
+                                ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                )
+                            } else {
+                                ButtonDefaults.filledTonalButtonColors()
+                            },
+                            border = if (selected) {
+                                BorderStroke(2.dp, MaterialTheme.colorScheme.onPrimaryContainer)
+                            } else {
+                                null
+                            },
+                        ) {
+                            Text(
+                                "${seconds}s",
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * One of the three delay-notification options.
+ *
+ * Marked by a tick and a border rather than fill alone, for the same reason the palette choices
+ * are: in the bright palette every container is a dark slab by design, so selection carried by
+ * container colour alone is invisible exactly where legibility matters most.
+ */
+@Composable
+private fun DelayModeChoice(
+    value: DelayNotification,
+    current: DelayNotification,
+    onSelect: (DelayNotification) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val selected = value == current
+    FilledTonalButton(
+        onClick = { onSelect(value) },
+        modifier = modifier
+            .fillMaxHeight()
+            .heightIn(min = 76.dp)
+            .semantics {
+                role = Role.RadioButton
+                this.selected = selected
+                stateDescription = if (selected) "Selected" else "Not selected"
+            },
+        colors = if (selected) {
+            ButtonDefaults.filledTonalButtonColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+        } else {
+            ButtonDefaults.filledTonalButtonColors()
+        },
+        border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.onPrimaryContainer) else null,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (selected) {
+                    Icon(MfdIcons.Confirm, contentDescription = null, modifier = Modifier.size(15.dp))
+                    Spacer(Modifier.size(4.dp))
+                }
+                Text(
+                    value.label,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                    maxLines = 1,
+                )
+            }
+            Text(
+                value.detail,
+                style = MaterialTheme.typography.labelSmall,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+            )
         }
     }
 }

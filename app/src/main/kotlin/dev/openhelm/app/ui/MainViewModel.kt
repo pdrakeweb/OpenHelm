@@ -154,6 +154,26 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch { store.saveShowDiagnostics(on) }
     }
 
+    /** When the "delayed by" readout over the picture appears. */
+    var delayNotification by mutableStateOf(DefaultDelayNotification)
+        private set
+
+    /** How late the picture must be, in seconds, before that readout counts it as late. */
+    var delayThresholdSeconds by mutableIntStateOf(DefaultDelayThresholdSeconds)
+        private set
+
+    fun selectDelayNotification(mode: DelayNotification) {
+        if (mode == delayNotification) return
+        delayNotification = mode
+        viewModelScope.launch { store.saveDelayNotification(mode.name) }
+    }
+
+    fun selectDelayThreshold(seconds: Int) {
+        if (seconds == delayThresholdSeconds) return
+        delayThresholdSeconds = seconds
+        viewModelScope.launch { store.saveDelayThresholdSeconds(seconds) }
+    }
+
     /**
      * The last thing the user did, for simulation's action field.
      *
@@ -185,6 +205,11 @@ class MainViewModel @Inject constructor(
 
         viewModelScope.launch {
             showDiagnostics = store.showDiagnostics.first()
+        }
+
+        viewModelScope.launch {
+            delayNotification = parseDelayNotification(store.delayNotification.first())
+            delayThresholdSeconds = parseDelayThreshold(store.delayThresholdSeconds.first())
         }
 
         // TCP-interleaved RTP is a simulator-only workaround — the AVD's NAT drops inbound UDP.

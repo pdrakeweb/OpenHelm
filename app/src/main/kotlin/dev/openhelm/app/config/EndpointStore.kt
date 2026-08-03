@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -45,6 +46,8 @@ class EndpointStore @Inject constructor(@ApplicationContext private val context:
     private val rememberedKey = stringPreferencesKey("remembered_displays")
     private val paletteKey = stringPreferencesKey("helm_palette")
     private val diagnosticsKey = booleanPreferencesKey("show_diagnostics")
+    private val delayModeKey = stringPreferencesKey("delay_notification")
+    private val delayThresholdKey = intPreferencesKey("delay_threshold_seconds")
 
     /**
      * Whether to show the engineering readouts: the connected address in the status bar and the
@@ -61,6 +64,25 @@ class EndpointStore @Inject constructor(@ApplicationContext private val context:
 
     suspend fun saveShowDiagnostics(value: Boolean) {
         context.dataStore.edit { prefs -> prefs[diagnosticsKey] = value }
+    }
+
+    /**
+     * When the "delayed by" readout appears, by name, and how late the picture must be before it
+     * counts as late. Both persisted: this is a standing judgement about how much staleness the
+     * boat tolerates, not a per-session choice.
+     */
+    val delayNotification: Flow<String?> =
+        context.dataStore.data.map { prefs -> prefs[delayModeKey] }
+
+    suspend fun saveDelayNotification(value: String) {
+        context.dataStore.edit { prefs -> prefs[delayModeKey] = value }
+    }
+
+    val delayThresholdSeconds: Flow<Int?> =
+        context.dataStore.data.map { prefs -> prefs[delayThresholdKey] }
+
+    suspend fun saveDelayThresholdSeconds(value: Int) {
+        context.dataStore.edit { prefs -> prefs[delayThresholdKey] = value }
     }
 
     /**
