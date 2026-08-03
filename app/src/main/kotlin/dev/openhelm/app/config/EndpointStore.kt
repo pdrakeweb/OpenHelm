@@ -3,6 +3,7 @@ package dev.openhelm.app.config
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -43,6 +44,24 @@ class EndpointStore @Inject constructor(@ApplicationContext private val context:
     private val transportKey = stringPreferencesKey("rtp_transport")
     private val rememberedKey = stringPreferencesKey("remembered_displays")
     private val paletteKey = stringPreferencesKey("helm_palette")
+    private val diagnosticsKey = booleanPreferencesKey("show_diagnostics")
+
+    /**
+     * Whether to show the engineering readouts: the connected address in the status bar and the
+     * video pipeline's frame counters over the picture.
+     *
+     * Off by default, and persisted because someone diagnosing a display wants it to survive the
+     * reconnect they are about to do. It is deliberately a real setting rather than a debug-build
+     * gate: the numbers that diagnose a bad link are worth having on the boat, where the build is
+     * whatever happens to be installed, and the one time they were needed the only way to read
+     * them was to ship a different APK.
+     */
+    val showDiagnostics: Flow<Boolean> =
+        context.dataStore.data.map { prefs -> prefs[diagnosticsKey] ?: false }
+
+    suspend fun saveShowDiagnostics(value: Boolean) {
+        context.dataStore.edit { prefs -> prefs[diagnosticsKey] = value }
+    }
 
     /**
      * "tcp" selects the simulator-only interleaved transport; anything else means UDP, the only

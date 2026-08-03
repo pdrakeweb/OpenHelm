@@ -242,10 +242,15 @@ private fun ConnectionStatusText(
             // video come up independently, so the line says which of the two is actually live.
             val videoPending = viewModel.mirroring &&
                 (videoState is VideoState.Connecting || videoState is VideoState.Idle)
-            if (videoPending) {
-                "Controls ready · starting video…" to MaterialTheme.colorScheme.onSurfaceVariant
-            } else {
-                "Connected · ${state.endpoint.host}" to MaterialTheme.colorScheme.secondary
+            when {
+                videoPending ->
+                    "Controls ready · starting video…" to MaterialTheme.colorScheme.onSurfaceVariant
+                // A working session says nothing. The address is engineering detail the user
+                // already knows — they are looking at the display — and a status bar that only
+                // speaks when something is wrong is one that gets read when it does.
+                viewModel.showDiagnostics ->
+                    "Connected · ${state.endpoint.host}" to MaterialTheme.colorScheme.secondary
+                else -> "" to MaterialTheme.colorScheme.secondary
             }
         }
 

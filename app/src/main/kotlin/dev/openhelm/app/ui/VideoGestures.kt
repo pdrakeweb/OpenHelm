@@ -8,6 +8,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.unit.IntSize
 
+/** The moments in a gesture worth feeling. Weighted differently: see [HelmHaptics]. */
+internal enum class HapticMoment { TOUCH_DOWN, STEP }
+
 /** What the gesture is doing right now, for anything that wants to draw it. */
 internal sealed interface VideoGesture {
     /** One finger on the picture. [moving] is false for the initial contact. */
@@ -42,6 +45,13 @@ internal suspend fun PointerInputScope.videoTouchGestures(
     onMove: (x: Float, y: Float, size: IntSize) -> Unit,
     onUp: (x: Float, y: Float, size: IntSize) -> Unit,
     onGesture: (VideoGesture) -> Unit = {},
+    /**
+     * Fired when the app *accepts* a gesture step, for haptic confirmation. Deliberately driven
+     * from the same points that decide to send — a buzz on a touch the app then withheld would be
+     * a lie, and on this screen the felt response is the only feedback that arrives before the
+     * display's own picture catches up.
+     */
+    onHaptic: (HapticMoment) -> Unit = {},
 ) {
     awaitEachGesture {
         val down = awaitFirstDown()
@@ -79,6 +89,17 @@ internal suspend fun PointerInputScope.videoTouchGestures(
             if (!downSent) {
                 downSent = true
                 onDown(last.x, last.y, viewSize)
+                onHaptic(HapticMoment.TOUCH_DOWN)
+            }
+        }
+
+        // Throttles the drag/pinch tick. A tick per pointer event is a continuous buzz that
+        // conveys nothing; one every MOVE_INTERVAL_MS reads as movement being tracked.
+        var lastHapticMs = 0L
+        fun stepHaptic(now: Long) {
+            if (now - lastHapticMs >= HAPTIC_INTERVAL_MS) {
+                lastHapticMs = now
+                onHaptic(HapticMoment.STEP)
             }
         }
 
@@ -113,6 +134,7 @@ internal suspend fun PointerInputScope.videoTouchGestures(
                         ),
                     )
                     onGesture(VideoGesture.Pinch(pressedChanges.map { it.position }, scale))
+                    stepHaptic(event.changes.first().uptimeMillis)
                     event.changes.forEach { it.consume() }
                 } else if (pressedChanges.size == 1 && touching) {
                     val change = pressedChanges.first()
@@ -124,6 +146,7 @@ internal suspend fun PointerInputScope.videoTouchGestures(
                             last = content(change.position)
                             onMove(last.x, last.y, viewSize)
                             onGesture(VideoGesture.Touch(change.position, moving = true))
+                            stepHaptic(now)
                         }
                     }
                     change.consume()
@@ -156,6 +179,15 @@ internal suspend fun PointerInputScope.videoTouchGestures(
 internal const val MAX_VIDEO_ZOOM = 4f
 internal const val SNAP_BACK_BELOW = 1.1f
 internal const val MOVE_INTERVAL_MS = 33L
+
+/**
+ * Minimum gap between drag/pinch ticks.
+ *
+ * Longer than [MOVE_INTERVAL_MS] on purpose: moves are sent at ~30 Hz to keep the display's
+ * cursor smooth, but a haptic at 30 Hz is not thirty taps, it is a hum. ~7 Hz is fast enough to
+ * feel continuous with the finger and slow enough that each tick is a distinct event.
+ */
+internal const val HAPTIC_INTERVAL_MS = 140L
 
 /**
  * How long a single finger must stay down before its touch is forwarded to the display.

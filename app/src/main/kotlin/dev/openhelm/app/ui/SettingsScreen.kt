@@ -117,6 +117,13 @@ fun SettingsScreen(viewModel: MainViewModel, palette: HelmPalette) {
                 )
             }
 
+            item(key = "diagnostics") {
+                DiagnosticsSection(
+                    enabled = viewModel.showDiagnostics,
+                    onToggle = viewModel::selectDiagnostics,
+                )
+            }
+
             // The whole Displays section is one item so it keeps its own internal rhythm — the
             // cards belong to each other more closely than the top-level sections do, which the
             // list's 24dp arrangement would have flattened. Not lazily composed, and deliberately
@@ -306,6 +313,45 @@ private fun SimulationSection(enabled: Boolean, onToggle: (Boolean) -> Unit) {
                 Text(
                     "Explore the app with a fake video feed and working controls — nothing is " +
                         "sent to a real display. Turns off automatically; it is never remembered.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.size(16.dp))
+            Switch(checked = enabled, onCheckedChange = onToggle)
+        }
+    }
+}
+
+/**
+ * The engineering readouts, as a setting rather than a build flag.
+ *
+ * Unlike simulation mode this **is** persisted: it gets turned on because something is wrong, and
+ * whatever is wrong is very likely to involve reconnecting or relaunching. A diagnostic that
+ * switches itself off during the fault you are chasing is not a diagnostic.
+ */
+@Composable
+private fun DiagnosticsSection(enabled: Boolean, onToggle: (Boolean) -> Unit) {
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "Show diagnostics",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Medium,
+                )
+                Spacer(Modifier.size(4.dp))
+                Text(
+                    "Adds the display's address to the status bar and a frame-rate, queue, decode " +
+                        "and packet-loss readout over the picture. Useful when video misbehaves; " +
+                        "clutter when it doesn't.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

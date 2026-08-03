@@ -31,7 +31,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.Canvas
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -39,7 +41,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.openhelm.app.BuildConfig
 import dev.openhelm.app.video.RtpTransport
 import dev.openhelm.app.video.VideoState
 import java.util.Locale
@@ -69,6 +70,14 @@ fun VideoPane(viewModel: MainViewModel, palette: HelmPalette, modifier: Modifier
     var textureView by remember { mutableStateOf<TextureView?>(null) }
     var scale by remember { mutableFloatStateOf(1f) }
     var pan by remember { mutableStateOf(Offset.Zero) }
+
+    // Gesture feedback: fading marks where fingers went, and the haptics that go with them. Both
+    // are the same code the simulated pane uses, so what simulation previews is what ships.
+    val view = LocalView.current
+    val trail = remember { TouchMarkTrail() }
+    var touching by remember { mutableStateOf(false) }
+    val markClock = rememberTouchMarkClock(trail, touching)
+    val markColor = MaterialTheme.colorScheme.primary
 
     // Latches the first time real video reaches the glass, and never clears. After that moment a
     // decoded frame is stuck on the TextureView for as long as the pane lives, which is what makes
@@ -152,9 +161,40 @@ fun VideoPane(viewModel: MainViewModel, palette: HelmPalette, modifier: Modifier
                             onDown = { x, y, size -> viewModel.videoTouchDown(x, y, size.width, size.height) },
                             onMove = { x, y, size -> viewModel.videoTouchMove(x, y, size.width, size.height) },
                             onUp = { x, y, size -> viewModel.videoTouchUp(x, y, size.width, size.height) },
+                            onGesture = { gesture ->
+                                when (gesture) {
+                                    is VideoGesture.Touch -> {
+                                        touching = true
+                                        trail.add(gesture.position, pinch = false, nowNanos = System.nanoTime())
+                                    }
+                                    is VideoGesture.Pinch -> {
+                                        touching = true
+                                        gesture.positions.forEach {
+                                            trail.add(it, pinch = true, nowNanos = System.nanoTime())
+                                        }
+                                    }
+                                    VideoGesture.End -> touching = false
+                                }
+                            },
+                            onHaptic = { moment ->
+                                when (moment) {
+                                    HapticMoment.TOUCH_DOWN -> HelmHaptics.touchDown(view)
+                                    HapticMoment.STEP -> HelmHaptics.gestureStep(view)
+                                }
+                            },
                         )
                     },
             )
+
+            // Where the finger went, fading. This was simulator-only, on the reasoning that a real
+            // session has the display's own cursor as feedback and live video should carry no
+            // decoration. In practice the display's response arrives a beat later over a video
+            // link, so between finger-down and the cursor moving there was nothing at all to say
+            // the touch had registered — and a mark that is gone inside a second is not decoration
+            // on a chart, it is the receipt for an action already taken.
+            Canvas(Modifier.fillMaxSize()) {
+                trail.draw(this, markClock, markColor)
+            }
         }
 
         NightDim(palette)
@@ -188,8 +228,12 @@ fun VideoPane(viewModel: MainViewModel, palette: HelmPalette, modifier: Modifier
         }
 
         // The overlay that keeps us honest: if these numbers regress, the build is broken.
-        // Debug-build only — it is diagnostic instrumentation, not something to show at a helm.
-        if (BuildConfig.DEBUG) {
+        //
+        // Behind a *setting* rather than a build flag. These five numbers are what turned "video
+        // doesn't work" into a diagnosis — a gap counter climbing with nothing decoded named the
+        // defect — and on a boat the build is whatever is installed, so gating them on a debug
+        // APK put them out of reach exactly when they mattered. Off by default; see Settings.
+        if (viewModel.showDiagnostics) {
             Text(
                 text = buildString {
                     append(stats.fps).append(" fps · q").append(stats.queueDepth)

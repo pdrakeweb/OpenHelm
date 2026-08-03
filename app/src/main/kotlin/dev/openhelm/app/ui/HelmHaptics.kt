@@ -39,6 +39,24 @@ internal object HelmHaptics {
     }
 
     /**
+     * A finger landing on the picture, where the touch is forwarded to the display.
+     *
+     * Same weight as a key press, and for the same reason: this *is* a press — it puts the
+     * display's cursor somewhere. The display's own response comes back over video a moment
+     * later, so until then the buzz is the only confirmation the app took the touch at all.
+     */
+    fun touchDown(view: View) = keyDown(view)
+
+    /**
+     * A step of a drag or a pinch across the picture.
+     *
+     * These fire repeatedly while a finger moves, so this is the light tick rather than the press
+     * weight — the same reasoning as the dial's detents. Callers throttle it; a tick per pointer
+     * event would be a continuous buzz that says nothing.
+     */
+    fun gestureStep(view: View) = detent(view)
+
+    /**
      * One detent of the rotary ring.
      *
      * These fire repeatedly while the ring turns, so this stays lighter than [keyDown]: a full

@@ -34,6 +34,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -144,6 +145,7 @@ private fun SimulatedVideoPane(
 ) {
     var frame by remember { mutableIntStateOf(0) }
     val measurer = rememberTextMeasurer()
+    val view = LocalView.current
 
     var scale by remember { mutableFloatStateOf(1f) }
     var pan by remember { mutableStateOf(Offset.Zero) }
@@ -218,6 +220,12 @@ private fun SimulatedVideoPane(
                                         onAction("Pinch zoom ×" + String.format(java.util.Locale.ROOT, "%.1f", gesture.scale))
                                     }
                                     VideoGesture.End -> touching = false
+                                }
+                            },
+                            onHaptic = { moment ->
+                                when (moment) {
+                                    HapticMoment.TOUCH_DOWN -> HelmHaptics.touchDown(view)
+                                    HapticMoment.STEP -> HelmHaptics.gestureStep(view)
                                 }
                             },
                         )

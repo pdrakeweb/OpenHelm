@@ -137,6 +137,23 @@ class MainViewModel @Inject constructor(
         private set
 
     /**
+     * Show the engineering readouts: the connected address in the status bar, and the video
+     * pipeline's counters over the picture.
+     *
+     * Off by default. At a helm the address is noise — the user knows which display they are
+     * looking at — but when something is wrong those numbers are the difference between "video
+     * doesn't work" and a diagnosis, so they are one switch away rather than one build away.
+     */
+    var showDiagnostics by mutableStateOf(false)
+        private set
+
+    fun selectDiagnostics(on: Boolean) {
+        if (on == showDiagnostics) return
+        showDiagnostics = on
+        viewModelScope.launch { store.saveShowDiagnostics(on) }
+    }
+
+    /**
      * The last thing the user did, for simulation's action field.
      *
      * Simulation shows a chart that cannot respond, so pressing a key produces no visible result
@@ -163,6 +180,10 @@ class MainViewModel @Inject constructor(
         // EndpointStore.palette for why relaunching bright after dark is not acceptable.
         viewModelScope.launch {
             palette = parsePalette(store.palette.first())
+        }
+
+        viewModelScope.launch {
+            showDiagnostics = store.showDiagnostics.first()
         }
 
         // TCP-interleaved RTP is a simulator-only workaround — the AVD's NAT drops inbound UDP.
