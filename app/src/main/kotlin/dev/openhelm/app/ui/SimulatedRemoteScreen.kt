@@ -66,67 +66,55 @@ fun SimulatedRemoteScreen(viewModel: MainViewModel, palette: HelmPalette) {
         if (!viewModel.mirroring) viewModel.selectMirroring(true) else viewModel.exitSimulation()
     }
 
-    // Same shape as the real remote: the bar sits over the picture so the panel owns the full
-    // height. See RemoteScreen.
+    // Same shape as the real remote — actions on a rail down the outside edge, nothing across the
+    // top. Simulation is only worth having if the layout it previews is the one that ships.
+    val rail: @Composable () -> Unit = {
+        HelmActionRail(
+            palette = palette,
+            mirroring = viewModel.mirroring,
+            onCyclePalette = { viewModel.cyclePalette(palette) },
+            onSelectMirroring = viewModel::selectMirroring,
+            exitIcon = MfdIcons.Disconnect,
+            exitLabel = "End simulation",
+            onExit = viewModel::exitSimulation,
+        )
+    }
+
     if (viewModel.mirroring) {
         Row(Modifier.fillMaxSize().padding(horizontal = HelmEdgeInset)) {
-            Column(Modifier.weight(1f).fillMaxHeight()) {
-                SimulationStatusBar(viewModel, palette)
+            Box(Modifier.weight(1f).fillMaxHeight()) {
                 SimulatedVideoPane(
                     palette = palette,
                     onAction = viewModel::noteSimAction,
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    modifier = Modifier.fillMaxSize(),
+                )
+                SimActionField(
+                    action = viewModel.simAction,
+                    repeats = viewModel.simActionRepeats,
+                    modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
                 )
             }
             SidePanel(viewModel)
+            rail()
         }
     } else {
-        Column(Modifier.fillMaxSize()) {
-            SimulationStatusBar(viewModel, palette)
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Keypad(
-                    onKeyDown = viewModel::keyDown,
-                    onKeyUp = viewModel::keyUp,
-                    onRotate = viewModel::zoomStep,
+        Row(Modifier.fillMaxSize().padding(horizontal = HelmEdgeInset)) {
+            Box(Modifier.weight(1f).fillMaxHeight()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Keypad(
+                        onKeyDown = viewModel::keyDown,
+                        onKeyUp = viewModel::keyUp,
+                        onRotate = viewModel::zoomStep,
+                    )
+                }
+                SimActionField(
+                    action = viewModel.simAction,
+                    repeats = viewModel.simActionRepeats,
+                    modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
                 )
             }
+            rail()
         }
-    }
-}
-
-@Composable
-private fun SimulationStatusBar(viewModel: MainViewModel, palette: HelmPalette) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(StatusBarHeight)
-            .padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        // No "Simulated display" caption: it repeated what the End simulation button and the
-        // SIMULATED badge on the picture already say, and it was taking the width the action field
-        // needed to show a full line without truncating.
-        SimActionField(
-            action = viewModel.simAction,
-            repeats = viewModel.simActionRepeats,
-            modifier = Modifier.weight(1f),
-        )
-        Spacer(Modifier.width(StatusBarGroupGap))
-        // Same position and behaviour as the real status bar — simulation is only useful as a
-        // preview if the controls it shows are the ones that ship.
-        PaletteButton(palette = palette, onCycle = { viewModel.cyclePalette(palette) })
-        Spacer(Modifier.width(StatusBarItemGap))
-        MirrorModeSwitch(
-            mirroring = viewModel.mirroring,
-            onSelect = viewModel::selectMirroring,
-        )
-        Spacer(Modifier.width(StatusBarItemGap))
-        NavActionButton(
-            icon = MfdIcons.Disconnect,
-            label = "End simulation",
-            onClick = viewModel::exitSimulation,
-        )
     }
 }
 
@@ -292,6 +280,10 @@ private fun SimActionField(action: String?, repeats: Int, modifier: Modifier = M
     Row(
         modifier
             .height(MinHelmTarget - 12.dp)
+            // Opaque, because it now sits over the picture rather than in a bar beside it — and
+            // the picture's own data bar occupies exactly this corner. A bordered box with the
+            // chart showing through it put two lines of small text on top of each other.
+            .background(Color(0xB3000000), MaterialTheme.shapes.small)
             .border(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outline,

@@ -33,13 +33,20 @@ class H264Decoder(
     private var thread: HandlerThread? = null
     private var handler: Handler? = null
 
-    private val pending = ArrayDeque<ByteArray>()
+    /** An access unit waiting for the decoder, with the instant its data finished arriving. */
+    private class Queued(val au: ByteArray, val arrivedNanos: Long)
+
+    private val pending = ArrayDeque<Queued>()
     private val freeInputs = ArrayDeque<Int>()
     private val submitTimesNs = ArrayDeque<Long>()
+
+    /** Arrival instants of the access units currently inside the codec, oldest first. */
+    private val inFlightArrivalNs = ArrayDeque<Long>()
     private var awaitIdr = true
     private var renderedFrames = 0L
     private var droppedAus = 0L
     private var decodeMsEma = 0.0
+    private var latencyMsEma = 0.0
     private var windowFrames = 0
     private var windowStartNs = 0L
     private var fps = 0
@@ -51,10 +58,20 @@ class H264Decoder(
         val dropped: Long,
         val queueDepth: Int,
         val decodeMs: Int,
+        /**
+         * Milliseconds from a frame's data being complete in this process to that frame being on
+         * the glass — queue wait, decode and render, measured on one clock so it is exact.
+         *
+         * This is the delay **the app is responsible for**. It is deliberately not called
+         * glass-to-glass: it cannot include what the display spends capturing and encoding before
+         * the packets leave it, because measuring that needs the two devices' clocks to agree, and
+         * a wrong number on a chart is worse than an honest partial one.
+         */
+        val latencyMs: Int,
     )
 
     @Volatile
-    var stats: Stats = Stats(0, 0, 0, 0, 0)
+    var stats: Stats = Stats(0, 0, 0, 0, 0, 0)
         private set
 
     fun start(surface: Surface, sps: ByteArray?, pps: ByteArray?) {
@@ -90,6 +107,13 @@ class H264Decoder(
                     val ms = (now - submitted) / 1_000_000.0
                     decodeMsEma = if (renderedFrames == 0L) ms else decodeMsEma * 0.9 + ms * 0.1
                 }
+                // The number the user sees: everything this app added between having the frame
+                // and showing it. Averaged the same way as decode, so a single slow frame does
+                // not make the readout jump.
+                inFlightArrivalNs.pollFirst()?.let { arrived ->
+                    val ms = (now - arrived) / 1_000_000.0
+                    latencyMsEma = if (renderedFrames == 0L) ms else latencyMsEma * 0.9 + ms * 0.1
+                }
                 if (renderedFrames == 0L) onFirstFrame()
                 renderedFrames++
                 if (windowStartNs == 0L) windowStartNs = now
@@ -114,10 +138,17 @@ class H264Decoder(
         c.start()
     }
 
-    /** Hand one access unit to the decoder. Thread-safe; returns immediately. */
-    fun submit(au: ByteArray) {
+    /**
+     * Hand one access unit to the decoder. Thread-safe; returns immediately.
+     *
+     * [arrivedNanos] is when this frame's data finished arriving, taken by the caller at the
+     * moment of receipt. It is carried all the way to the render callback so the delay the user
+     * is shown covers the queue wait as well as the decode — the two are indistinguishable from
+     * the outside, and a frame that sat in a queue is exactly as stale as one that decoded slowly.
+     */
+    fun submit(au: ByteArray, arrivedNanos: Long = System.nanoTime()) {
         handler?.post {
-            pending.add(au)
+            pending.add(Queued(au, arrivedNanos))
             if (pending.size > MAX_PENDING) {
                 // Latency that accumulates is never recovered: drop to the newest and rejoin at
                 // an IDR rather than let the queue deepen.
@@ -139,7 +170,8 @@ class H264Decoder(
     private fun feed() {
         val c = codec ?: return
         while (freeInputs.isNotEmpty() && pending.isNotEmpty()) {
-            val au = pending.poll()
+            val queued = pending.poll()
+            val au = queued.au
             if (awaitIdr) {
                 if (containsIdr(au)) awaitIdr = false
                 else {
@@ -153,13 +185,17 @@ class H264Decoder(
             buffer.clear()
             buffer.put(au)
             submitTimesNs.add(System.nanoTime())
+            inFlightArrivalNs.add(queued.arrivedNanos)
             c.queueInputBuffer(index, 0, au.size, System.nanoTime() / 1000, 0)
         }
         publishStats()
     }
 
     private fun publishStats() {
-        stats = Stats(fps, renderedFrames, droppedAus, pending.size, decodeMsEma.toInt())
+        stats = Stats(
+            fps, renderedFrames, droppedAus, pending.size,
+            decodeMsEma.toInt(), latencyMsEma.toInt(),
+        )
     }
 
     fun stop() {
@@ -178,6 +214,8 @@ class H264Decoder(
             c?.release()
             pending.clear()
             freeInputs.clear()
+            submitTimesNs.clear()
+            inFlightArrivalNs.clear()
             t?.quitSafely()
         }
     }

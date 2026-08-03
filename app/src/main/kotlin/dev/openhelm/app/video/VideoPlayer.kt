@@ -60,6 +60,15 @@ data class VideoStats(
     val discontinuities: Long = 0,
     val queueDepth: Int = 0,
     val decodeMs: Int = 0,
+    /**
+     * How far behind the live picture is, in milliseconds, measured from a frame's data being
+     * complete here to that frame reaching the glass. Zero until the first frame renders.
+     *
+     * Covers this app's whole contribution — queue wait, decode, render — on a single clock, so
+     * it is exact. It does **not** include the display's own capture-and-encode time, which is
+     * unmeasurable from here without the two devices agreeing on the time of day.
+     */
+    val latencyMs: Int = 0,
     val transport: RtpTransport = RtpTransport.UDP,
 )
 
@@ -278,7 +287,7 @@ class VideoPlayer @Inject constructor(
                                             Log.i(TAG, "First access unit assembled (interleaved): " +
                                                 "${au.size} bytes")
                                         }
-                                        decoder.submit(au)
+                                        decoder.submit(au, System.nanoTime())
                                     }
                                 }
                             }
@@ -363,7 +372,9 @@ class VideoPlayer @Inject constructor(
                     sawMedia = true
                     Log.i(TAG, "First access unit assembled: ${au.size} bytes (idr=${containsIdr(au)})")
                 }
-                decoder.submit(au)
+                // Stamp the frame the instant it is complete here. Everything after this point is
+                // delay this app is accountable for, and that is what the readout reports.
+                decoder.submit(au, System.nanoTime())
             }
         }
     }
@@ -391,6 +402,7 @@ class VideoPlayer @Inject constructor(
                 discontinuities = discontinuities(),
                 queueDepth = d.queueDepth,
                 decodeMs = d.decodeMs,
+                latencyMs = d.latencyMs,
                 transport = transport,
             )
             // Say what the far end is doing, not just what we ended up with. A rising gap count

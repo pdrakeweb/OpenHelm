@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
@@ -225,7 +226,15 @@ fun Keypad(
     val gap = 8.dp
     val clusterGap = 28.dp
 
-    BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
+    // The margin is inside the measured area on purpose. The solver divides the height it is given
+    // among four rows and three gaps and leaves nothing over, so handing it the raw window height
+    // produces a cluster exactly as tall as the window — which the first pixel of rounding then
+    // pushes past the bottom edge, clipping a row. Reserving the margin before measuring means the
+    // answer fits by construction rather than by luck.
+    BoxWithConstraints(
+        modifier.padding(vertical = KeypadEdgeMargin),
+        contentAlignment = Alignment.Center,
+    ) {
         val size = keySizeFor(maxWidth, maxHeight, gap, clusterGap, maxKeySize)
 
         Row(
@@ -260,6 +269,9 @@ fun Keypad(
  *
  * Kept internal and free of Compose so it can be unit-tested at window sizes no emulator offers.
  */
+/** Breathing room kept at the top and bottom of the full-screen keypad. */
+internal val KeypadEdgeMargin = 8.dp
+
 internal fun keySizeFor(
     availableWidth: Dp,
     availableHeight: Dp,

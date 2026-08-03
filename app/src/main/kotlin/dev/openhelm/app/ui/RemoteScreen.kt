@@ -1,24 +1,18 @@
 package dev.openhelm.app.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -30,10 +24,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.openhelm.app.rrc.ConnectionState
@@ -71,42 +64,57 @@ fun RemoteScreen(viewModel: MainViewModel, state: ConnectionState, palette: Helm
     // palette cycle, the mode switch and Disconnect must all keep working mid-outage.
     val controlsDisabled = state !is ConnectionState.Connected
 
-    // The status bar sits over the picture, not across the whole window, so the control panel
-    // starts at the top edge and gets the full height. That is worth more than the tidiness of a
-    // full-width bar: the panel's size band is chosen from the height it is handed, so the ~64dp
-    // the bar used to take off the top was coming straight out of every key and the dial.
+    // No bar across the top any more. The session's four actions are a rail of round buttons down
+    // the outside edge, which hands the ~64dp the bar occupied back to the picture — and since the
+    // picture is a fixed 5:3 that is usually height-bound in a landscape window, height back means
+    // a bigger picture on *both* axes. What the bar used to say is now said over the video, and
+    // only when there is something worth saying.
+    val rail: @Composable () -> Unit = {
+        HelmActionRail(
+            palette = palette,
+            mirroring = viewModel.mirroring,
+            onCyclePalette = { viewModel.cyclePalette(palette) },
+            onSelectMirroring = viewModel::selectMirroring,
+            exitIcon = MfdIcons.Disconnect,
+            exitLabel = "Disconnect from the display",
+            onExit = { confirmDisconnect = true },
+        )
+    }
+
     if (viewModel.mirroring) {
         Row(Modifier.fillMaxSize().padding(horizontal = HelmEdgeInset)) {
-            Column(Modifier.weight(1f).fillMaxHeight()) {
-                RemoteStatusBar(
+            Box(Modifier.weight(1f).fillMaxHeight()) {
+                VideoPane(viewModel, palette, Modifier.fillMaxSize())
+                ConnectionBanner(
                     viewModel = viewModel,
                     state = state,
-                    palette = palette,
-                    onDisconnectRequest = { confirmDisconnect = true },
+                    modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
                 )
-                VideoPane(viewModel, palette, Modifier.weight(1f).fillMaxWidth())
             }
             DimmedWhenDisabled(controlsDisabled, Modifier.fillMaxHeight()) {
                 SidePanel(viewModel)
             }
+            rail()
         }
     } else {
-        Column(Modifier.fillMaxSize()) {
-            RemoteStatusBar(
-                viewModel = viewModel,
-                state = state,
-                palette = palette,
-                onDisconnectRequest = { confirmDisconnect = true },
-            )
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                DimmedWhenDisabled(controlsDisabled) {
-                    Keypad(
-                        onKeyDown = viewModel::keyDown,
-                        onKeyUp = viewModel::keyUp,
-                        onRotate = viewModel::zoomStep,
-                    )
+        Row(Modifier.fillMaxSize().padding(horizontal = HelmEdgeInset)) {
+            Box(Modifier.weight(1f).fillMaxHeight()) {
+                DimmedWhenDisabled(controlsDisabled, Modifier.fillMaxSize()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Keypad(
+                            onKeyDown = viewModel::keyDown,
+                            onKeyUp = viewModel::keyUp,
+                            onRotate = viewModel::zoomStep,
+                        )
+                    }
                 }
+                ConnectionBanner(
+                    viewModel = viewModel,
+                    state = state,
+                    modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
+                )
             }
+            rail()
         }
     }
 
@@ -183,60 +191,46 @@ private fun DisconnectConfirmation(onConfirm: () -> Unit, onDismiss: () -> Unit)
 }
 
 /**
- * The status bar: what the connection is doing, in words, plus the two mode actions as real
- * buttons rather than the bare text links they used to be.
- */
-@Composable
-private fun RemoteStatusBar(
-    viewModel: MainViewModel,
-    state: ConnectionState,
-    palette: HelmPalette,
-    onDisconnectRequest: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(StatusBarHeight)
-            .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(StatusBarItemGap),
-    ) {
-        ConnectionStatusText(viewModel, state, Modifier.weight(1f))
-        Spacer(Modifier.width(StatusBarGroupGap - StatusBarItemGap))
-
-        // Deliberately the left-most action, the full width of the group away from Disconnect. It
-        // is the one control here someone reaches for in the dark, and a mis-tap must not be able
-        // to land on the button that ends the session.
-        PaletteButton(palette = palette, onCycle = { viewModel.cyclePalette(palette) })
-
-        MirrorModeSwitch(
-            mirroring = viewModel.mirroring,
-            onSelect = viewModel::selectMirroring,
-        )
-        HelmActionButton(
-            icon = MfdIcons.Disconnect,
-            label = "Disconnect",
-            onClick = onDisconnectRequest,
-            destructive = true,
-        )
-    }
-}
-
-/**
- * Connection state in words.
+ * Connection state in words, over the top-left of whatever the screen is showing.
+ *
+ * Renders **nothing at all** when the session is healthy and quiet. This replaced a permanent bar
+ * across the top: four buttons and a line of text that, in the ordinary case, said only that
+ * everything was fine — while costing the picture the height it most needed. A readout that is
+ * silent when there is nothing to report is the one that gets read when there is.
  *
  * State is never carried by colour alone — each one is spelled out, because colour is the first
  * thing to wash out in direct sun and roughly 8% of men have some colour-vision deficiency.
  */
 @Composable
-private fun ConnectionStatusText(
+private fun ConnectionBanner(
     viewModel: MainViewModel,
     state: ConnectionState,
     modifier: Modifier = Modifier,
 ) {
+    val (text, color) = connectionStatus(viewModel, state)
+    if (text.isEmpty()) return
+    Text(
+        text = text,
+        modifier = modifier
+            .background(
+                color = Color(0xB3000000),
+                shape = MaterialTheme.shapes.small,
+            )
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        style = MaterialTheme.typography.bodyMedium,
+        color = color,
+        maxLines = 2,
+    )
+}
+
+@Composable
+private fun connectionStatus(
+    viewModel: MainViewModel,
+    state: ConnectionState,
+): Pair<String, Color> {
     val videoState by viewModel.videoState.collectAsStateWithLifecycle()
 
-    val (text, color) = when (state) {
+    return when (state) {
         is ConnectionState.Connected -> {
             // "Connected" beside a pane that is still a spinner is a mixed signal. Control and
             // video come up independently, so the line says which of the two is actually live.
@@ -261,58 +255,6 @@ private fun ConnectionStatusText(
             "Reconnecting · ${friendlyReason(state.reason)}" to MaterialTheme.colorScheme.error
 
         ConnectionState.Idle -> "" to MaterialTheme.colorScheme.onSurfaceVariant
-    }
-
-    Text(
-        text = text,
-        modifier = modifier,
-        style = MaterialTheme.typography.bodyMedium,
-        color = color,
-        maxLines = 2,
-    )
-}
-
-/**
- * An action on the remote screen: icon and word, sized for a helm. These were bare text links —
- * small, visually identical to each other, and sitting side by side where one ends the session.
- *
- * A filled container, not a [TextButton]: the design-review fix these replaced asked for a visible
- * edge, and a `TextButton` has none, so the first version of this satisfied the letter of the
- * change and not the point of it. The destructive variant is additionally distinguished by its
- * container rather than by tint alone, because tint alone is exactly the cue that disappears in
- * direct sun.
- */
-@Composable
-private fun HelmActionButton(
-    icon: ImageVector,
-    label: String,
-    onClick: () -> Unit,
-    destructive: Boolean = false,
-    width: Dp = 150.dp,
-) {
-    val colors = if (destructive) {
-        ButtonDefaults.filledTonalButtonColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer,
-            contentColor = MaterialTheme.colorScheme.onErrorContainer,
-        )
-    } else {
-        ButtonDefaults.filledTonalButtonColors()
-    }
-
-    FilledTonalButton(
-        onClick = onClick,
-        colors = colors,
-        modifier = Modifier
-            .height(MinHelmTarget)
-            .width(width),
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null, // the adjacent label already names the action
-            modifier = Modifier.size(20.dp),
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(label, maxLines = 1)
     }
 }
 

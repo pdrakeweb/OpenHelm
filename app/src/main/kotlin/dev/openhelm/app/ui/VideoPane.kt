@@ -233,6 +233,10 @@ fun VideoPane(viewModel: MainViewModel, palette: HelmPalette, modifier: Modifier
         // doesn't work" into a diagnosis — a gap counter climbing with nothing decoded named the
         // defect — and on a boat the build is whatever is installed, so gating them on a debug
         // APK put them out of reach exactly when they mattered. Off by default; see Settings.
+        //
+        // Bottom-left, and properly opaque. Along the top it sat over the data bar the display
+        // draws across its own top edge — two rows of small text on top of each other, neither
+        // readable — and at a third opacity the chart showed straight through the digits.
         if (viewModel.showDiagnostics) {
             Text(
                 text = buildString {
@@ -244,17 +248,71 @@ fun VideoPane(viewModel: MainViewModel, palette: HelmPalette, modifier: Modifier
                     if (scale > 1f) append(" · ×").append(String.format(Locale.ROOT, "%.1f", scale))
                     if (stats.transport == RtpTransport.TCP_INTERLEAVED) append(" · TCP (sim)")
                 },
-                color = Color(0xCCE8EEF4),
+                color = Color(0xFFE8EEF4),
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace,
                 modifier = Modifier
-                    .align(Alignment.TopStart)
+                    .align(Alignment.BottomStart)
                     .padding(6.dp)
-                    .background(Color(0x66000000)),
+                    .background(Color(0xD9000000), MaterialTheme.shapes.extraSmall)
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+            )
+        }
+
+        // How far behind the picture is. On by default — unlike the diagnostics above, this is not
+        // engineering detail: a chart that is a second old is a different thing to navigate by
+        // than a live one, and the number is the only way to know which you are looking at.
+        if (videoState == VideoState.Streaming && stats.latencyMs > 0) {
+            DelayReadout(
+                millis = stats.latencyMs,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp),
             )
         }
     }
 }
+
+/**
+ * How far behind live the picture is, in seconds.
+ *
+ * **What the number is.** It is measured, not estimated: each frame is stamped when its data is
+ * complete in this process and again when it reaches the glass, on one clock, so the figure is
+ * exact for what it covers — this app's own queue, decode and render.
+ *
+ * **What it is not.** It cannot include the time the display spends capturing and encoding before
+ * the packets leave it. Measuring that needs the two devices to agree on the time of day, and they
+ * do not; a plausible-looking number derived from clocks that disagree would be worse than no
+ * number, on a readout whose whole job is to be trusted. So the true lag is *at least* this, and
+ * the wording says "at least" rather than implying precision it does not have.
+ *
+ * Amber past a second, because that is roughly where a chart stops being something to steer by and
+ * starts being something to check against.
+ */
+@Composable
+private fun DelayReadout(millis: Int, modifier: Modifier = Modifier) {
+    val warn = millis >= DELAY_WARN_MS
+    // Milliseconds below a second. A pipeline running well is tens of milliseconds behind, and
+    // rendering that as "0.0 s" throws away the entire measurement precisely when it is the good
+    // news — the number exists to distinguish a live picture from a stale one, so it has to stay
+    // legible at the scale a live one actually reads.
+    val figure = if (millis < 1_000) {
+        "$millis ms"
+    } else {
+        String.format(Locale.ROOT, "%.1f", millis / 1000f) + " s"
+    }
+    Text(
+        text = "delayed by ≥ $figure",
+        modifier = modifier
+            .background(Color(0xD9000000), MaterialTheme.shapes.extraSmall)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        color = if (warn) MaterialTheme.colorScheme.error else Color(0xFFE8EEF4),
+        fontSize = 12.sp,
+        fontFamily = FontFamily.Monospace,
+        fontWeight = if (warn) FontWeight.Bold else FontWeight.Normal,
+    )
+}
+
+/** Where a delay stops being a detail and starts being worth noticing. */
+private const val DELAY_WARN_MS = 1_000
 
 /**
  * Video never started — as distinct from video that started and then froze.
