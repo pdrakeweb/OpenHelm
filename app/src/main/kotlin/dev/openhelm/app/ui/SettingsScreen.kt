@@ -60,8 +60,17 @@ import dev.openhelm.app.ui.icons.MfdIcons
  * screen shows.
  */
 @Composable
-fun SettingsScreen(viewModel: MainViewModel, palette: HelmPalette) {
-    BackHandler { viewModel.backToConnect() }
+fun SettingsScreen(
+    viewModel: MainViewModel,
+    palette: HelmPalette,
+    /**
+     * How to leave. Parameterised because this screen is reached two ways: pushed over the connect
+     * screen, where leaving means going back to it, and laid over a *live session*, where leaving
+     * must do nothing but dismiss — the session underneath has to be untouched.
+     */
+    onDone: () -> Unit = viewModel::backToConnect,
+) {
+    BackHandler(onBack = onDone)
     val remembered by viewModel.remembered.collectAsStateWithLifecycle()
 
     // The header is pinned and only the content below it scrolls.
@@ -94,7 +103,7 @@ fun SettingsScreen(viewModel: MainViewModel, palette: HelmPalette) {
             NavActionButton(
                 icon = MfdIcons.Confirm,
                 label = "Done",
-                onClick = viewModel::backToConnect,
+                onClick = onDone,
             )
         }
 

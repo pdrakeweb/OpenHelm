@@ -50,10 +50,12 @@ fun RemoteScreen(viewModel: MainViewModel, state: ConnectionState, palette: Helm
     KeepScreenOn()
 
     var confirmDisconnect by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
 
     // Back walks the modes before it tears anything down: full-screen remote → side-by-side →
-    // confirm disconnect. Nothing here drops the session by surprise.
-    BackHandler {
+    // confirm disconnect. Nothing here drops the session by surprise. Disabled while Settings is
+    // open, which brings its own handler and must be what Back dismisses.
+    BackHandler(enabled = !showSettings) {
         if (!viewModel.mirroring) viewModel.selectMirroring(true) else confirmDisconnect = true
     }
 
@@ -78,6 +80,7 @@ fun RemoteScreen(viewModel: MainViewModel, state: ConnectionState, palette: Helm
             exitIcon = MfdIcons.Disconnect,
             exitLabel = "Disconnect from the display",
             onExit = { confirmDisconnect = true },
+            onSettings = { showSettings = true },
         )
     }
 
@@ -118,6 +121,10 @@ fun RemoteScreen(viewModel: MainViewModel, state: ConnectionState, palette: Helm
         }
     }
 
+    if (showSettings) {
+        SessionSettingsOverlay(viewModel, palette) { showSettings = false }
+    }
+
     if (confirmDisconnect) {
         DisconnectConfirmation(
             onConfirm = {
@@ -126,6 +133,44 @@ fun RemoteScreen(viewModel: MainViewModel, state: ConnectionState, palette: Helm
             },
             onDismiss = { confirmDisconnect = false },
         )
+    }
+}
+
+/**
+ * Settings, laid **over** a live session rather than navigated to.
+ *
+ * The distinction is load-bearing, not stylistic. Routing away from the remote screen would take
+ * the video pane out of composition, which destroys its `SurfaceTexture`, which stops the player —
+ * so a trip to Settings would cost a video restart and a wait for the next keyframe on the way
+ * back. Composed on top, the pane underneath is merely covered: the control socket, the RTSP
+ * session and the decoder all keep running, and dismissing this reveals a picture that never
+ * stopped.
+ *
+ * Opaque and touch-consuming: the rail and the panel are still there behind it, and a stray tap
+ * landing on Disconnect through a settings screen would be a genuinely bad surprise.
+ */
+@Composable
+private fun SessionSettingsOverlay(
+    viewModel: MainViewModel,
+    palette: HelmPalette,
+    onDone: () -> Unit,
+) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        event.changes.forEach { it.consume() }
+                        if (event.changes.none { it.pressed }) break
+                    }
+                }
+            },
+    ) {
+        SettingsScreen(viewModel, palette, onDone = onDone)
     }
 }
 

@@ -4,6 +4,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -61,8 +63,10 @@ fun SimulatedRemoteScreen(viewModel: MainViewModel, palette: HelmPalette) {
     // and simulation showed a window shape the real session never has.
     ImmersiveWhileConnected()
 
+    var showSettings by remember { mutableStateOf(false) }
+
     // Same shape as RemoteScreen's Back handling: leave full-screen before leaving simulation.
-    BackHandler {
+    BackHandler(enabled = !showSettings) {
         if (!viewModel.mirroring) viewModel.selectMirroring(true) else viewModel.exitSimulation()
     }
 
@@ -77,6 +81,7 @@ fun SimulatedRemoteScreen(viewModel: MainViewModel, palette: HelmPalette) {
             exitIcon = MfdIcons.Disconnect,
             exitLabel = "End simulation",
             onExit = viewModel::exitSimulation,
+            onSettings = { showSettings = true },
         )
     }
 
@@ -114,6 +119,28 @@ fun SimulatedRemoteScreen(viewModel: MainViewModel, palette: HelmPalette) {
                 )
             }
             rail()
+        }
+    }
+
+    // Over the top, like the real session — simulation exists to preview what ships, and that
+    // includes how you reach Settings from inside a session.
+    if (showSettings) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            event.changes.forEach { it.consume() }
+                            if (event.changes.none { it.pressed }) break
+                        }
+                    }
+                },
+        ) {
+            SettingsScreen(viewModel, palette, onDone = { showSettings = false })
         }
     }
 }

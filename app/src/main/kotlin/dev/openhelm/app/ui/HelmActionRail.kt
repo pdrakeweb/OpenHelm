@@ -51,6 +51,7 @@ fun HelmActionRail(
     exitIcon: ImageVector,
     exitLabel: String,
     onExit: () -> Unit,
+    onSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -60,6 +61,19 @@ fun HelmActionRail(
         verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        // Top of the rail, furthest from Disconnect. Settings used to live only behind the connect
+        // screen's overflow menu, which put every option in it — the palette detail, the delay
+        // warning, the diagnostics — out of reach the moment a session started, i.e. exactly when
+        // someone would want to change them. It opens *over* the session; nothing is torn down.
+        FilledTonalIconButton(
+            onClick = onSettings,
+            modifier = Modifier
+                .size(MinHelmTarget)
+                .semantics { contentDescription = "Settings" },
+        ) {
+            Icon(MfdIcons.Settings, contentDescription = null, modifier = Modifier.size(24.dp))
+        }
+
         PaletteButton(palette = palette, onCycle = onCyclePalette)
 
         ModeButton(
