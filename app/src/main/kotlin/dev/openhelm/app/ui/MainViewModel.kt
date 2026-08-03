@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.os.SystemClock
 import android.view.Surface
 import dev.openhelm.app.config.EndpointStore
 import dev.openhelm.app.config.RememberedDisplay
@@ -495,11 +496,17 @@ class MainViewModel @Inject constructor(
 
     private var touchGesture: TouchGesture? = null
 
+    /** When the current gesture's DOWN went out, for the minimum-dwell rule below. */
+    private var touchDownAtMs = 0L
+    private var touchUpJob: Job? = null
+
     fun videoTouchDown(x: Float, y: Float, width: Int, height: Int) {
         val endpoint = connectedEndpoint() ?: return
         val (nx, ny) = normalise(x, y, width, height)
         val gesture = TouchGesture(endpoint.rrcVersion)
         touchGesture = gesture
+        touchUpJob?.cancel()
+        touchDownAtMs = SystemClock.uptimeMillis()
         rrc.send(gesture.down(nx, ny))
     }
 
@@ -509,11 +516,32 @@ class MainViewModel @Inject constructor(
         rrc.send(gesture.move(nx, ny))
     }
 
+    /**
+     * Release the touch — but never in the same instant the press went out.
+     *
+     * A gesture shorter than the pinch-grace window is emitted whole on lift, which sent DOWN and
+     * UP **one millisecond apart**. No finger produces that, and a display has no reason to be
+     * built for it: pressing an on-screen control that way latched it down and left it
+     * auto-repeating, because the release raced the press rather than following it. Holding the UP
+     * back to a realistic dwell makes what we send look like what a finger does.
+     *
+     * The wait runs in the view-model scope rather than the gesture scope so lifting the finger
+     * still returns immediately, and it is cancelled by the next DOWN so a fast sequence of taps
+     * cannot deliver its releases out of order.
+     */
     fun videoTouchUp(x: Float, y: Float, width: Int, height: Int) {
         val gesture = touchGesture ?: return
         touchGesture = null
         val (nx, ny) = normalise(x, y, width, height)
-        rrc.send(gesture.up(nx, ny))
+        val held = SystemClock.uptimeMillis() - touchDownAtMs
+        if (held >= MIN_TOUCH_DWELL_MS) {
+            rrc.send(gesture.up(nx, ny))
+            return
+        }
+        touchUpJob = viewModelScope.launch {
+            delay(MIN_TOUCH_DWELL_MS - held)
+            rrc.send(gesture.up(nx, ny))
+        }
     }
 
     /**
@@ -544,6 +572,15 @@ class MainViewModel @Inject constructor(
 
         /** How many remembered displays the connect screen offers as buttons. */
         const val RECENT_BUTTONS = 4
+
+        /**
+         * Shortest press the display is ever shown, in milliseconds.
+         *
+         * A quick tap is emitted as DOWN and UP together on lift, which without this arrives ~1 ms
+         * apart. 90 ms is at the short end of a deliberate human tap — long enough to be a press
+         * the display can act on, short enough that a tap still feels instant.
+         */
+        const val MIN_TOUCH_DWELL_MS = 90L
     }
 }
 
