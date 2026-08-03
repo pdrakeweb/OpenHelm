@@ -161,39 +161,6 @@ internal data class PanelMetrics(
 }
 
 /**
- * The height the status bar is fixed at.
- *
- * Fixed rather than measured so the panel's band can be worked out before either is laid out: the
- * band depends on the height left under the bar, and the bar's trailing button depends on the band.
- * Measuring both would be circular. It is exactly a helm target plus its padding, which is what the
- * bar contained anyway.
- */
-internal val StatusBarHeight: Dp = MinHelmTarget + 8.dp
-
-/**
- * Gap between two adjacent **controls** in the status bar.
- *
- * 8dp: Material's own minimum between neighbouring buttons, and enough that two filled containers
- * do not read as one wide control. Any less and the palette button and the mode switch merge into
- * a single lozenge at a glance.
- */
-internal val StatusBarItemGap: Dp = 8.dp
-
-/**
- * Gap between the status **readout** and the group of controls beside it.
- *
- * 16dp, twice [StatusBarItemGap]. The readout is a different kind of thing from the buttons — it
- * reports, they act — and spacing is what says so when nothing else does. At 8dp the simulation
- * action field, which is a bordered box, sat hard against the round palette button and the two
- * edges read as a single compound widget; doubling the gap groups the controls together and sets
- * the readout apart from them without a divider or a second colour.
- *
- * The ratio is the point rather than the absolute number: within a group, one unit; between groups,
- * two.
- */
-internal val StatusBarGroupGap: Dp = 16.dp
-
-/**
  * Dead space held at the left and right edges of the side-by-side layout.
  *
  * Phone screens are rounded, and the panel runs the full height, which puts its outermost keys hard

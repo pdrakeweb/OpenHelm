@@ -83,6 +83,16 @@ class PaletteContrastTest {
         // the same bar as large text, so this tracks the palette's own large threshold rather than
         // a flat number — night could not meet 3:1 without emitting light it exists to avoid.
         assertContrast("$p outline/background", s.outline, s.background, large)
+
+        // The ring drawn around a *selected* choice, against the card it sits on.
+        //
+        // This pairing is the one that has actually failed. The outline was `onPrimaryContainer`,
+        // chosen so it would contrast with the chip it surrounds — which it did. But a border
+        // straddles a boundary, and its outer half lies over the **card**: in the bright palette
+        // that made a pure-white ring on a near-white card, i.e. no ring at all, in the palette
+        // whose entire purpose is being readable in glare. Measuring against the chip would have
+        // passed and told us nothing; the surface behind is the one that matters.
+        assertContrast("$p selection outline/card", s.primary, s.surfaceVariant, large)
     }
 
     @Test

@@ -26,6 +26,10 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -38,6 +42,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -181,6 +186,23 @@ fun SettingsScreen(
 }
 
 /**
+ * The outline drawn around a selected choice.
+ *
+ * **Drawn to contrast with the card behind the chip, not with the chip itself.** It used to be
+ * `onPrimaryContainer`, on the reasoning that the container's own content colour must contrast
+ * with that container — true, but the wrong surface. A border straddles the boundary: half of it
+ * lies over the chip and half over the card. In the bright palette `onPrimaryContainer` is pure
+ * white and the card is near-white, so the outer half vanished and the selection cue with it —
+ * exactly where legibility is the entire point of the palette.
+ *
+ * `primary` is the one role that is reliably far from the card surface in all three: a dark navy
+ * on the bright palette's near-white card, a light blue on dark's navy, a red on night's near
+ * black. `PaletteContrastTest` now measures it rather than trusting this note.
+ */
+@Composable
+private fun SelectionOutline(): Color = MaterialTheme.colorScheme.primary
+
+/**
  * Day / dusk / night, as three named choices you can see all of at once.
  *
  * The status bar carries the same setting as a one-tap cycle, because mid-passage is when it is
@@ -273,11 +295,7 @@ private fun PaletteChoice(
         } else {
             ButtonDefaults.filledTonalButtonColors()
         },
-        border = if (selected) {
-            BorderStroke(2.dp, MaterialTheme.colorScheme.onPrimaryContainer)
-        } else {
-            null
-        },
+        border = if (selected) BorderStroke(2.dp, SelectionOutline()) else null,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
@@ -406,40 +424,60 @@ private fun DelaySection(
                     },
                 )
                 Spacer(Modifier.size(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DelayThresholdChoices.forEach { seconds ->
-                        val selected = seconds == thresholdSeconds
-                        FilledTonalButton(
-                            onClick = { onSelectThreshold(seconds) },
-                            enabled = thresholdEnabled,
-                            modifier = Modifier
-                                .height(MinHelmTarget)
-                                .semantics {
-                                    role = Role.RadioButton
-                                    this.selected = selected
-                                    stateDescription = if (selected) "Selected" else "Not selected"
-                                },
-                            colors = if (selected) {
-                                ButtonDefaults.filledTonalButtonColors(
-                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                )
-                            } else {
-                                ButtonDefaults.filledTonalButtonColors()
-                            },
-                            border = if (selected) {
-                                BorderStroke(2.dp, MaterialTheme.colorScheme.onPrimaryContainer)
-                            } else {
-                                null
-                            },
-                        ) {
-                            Text(
-                                "${seconds}s",
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                            )
-                        }
-                    }
-                }
+                ThresholdTrack(
+                    selected = thresholdSeconds,
+                    enabled = thresholdEnabled,
+                    onSelect = onSelectThreshold,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The threshold, as one connected track rather than a row of separate buttons.
+ *
+ * Five standalone pills for five numbers read as five decisions; a single divided track reads as
+ * one — which is what it is, a value chosen along a scale. It is also far less ink for a secondary
+ * control sitting under a primary one, so the card no longer looks like two competing rows of
+ * lozenges.
+ *
+ * The selected segment is marked three ways, none of which is only an outline: Material's own tick,
+ * a filled container, and bold text. The border it does carry is [SelectionOutline], drawn to
+ * contrast with the card rather than with the segment — the distinction that made the previous
+ * version invisible in the bright palette.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ThresholdTrack(
+    selected: Int,
+    enabled: Boolean,
+    onSelect: (Int) -> Unit,
+) {
+    val outline = SelectionOutline()
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().height(MinHelmTarget)) {
+        DelayThresholdChoices.forEachIndexed { index, seconds ->
+            val isSelected = seconds == selected
+            SegmentedButton(
+                selected = isSelected,
+                onClick = { onSelect(seconds) },
+                enabled = enabled,
+                shape = SegmentedButtonDefaults.itemShape(index, DelayThresholdChoices.size),
+                colors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    activeContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    activeBorderColor = outline,
+                ),
+                modifier = Modifier.semantics {
+                    stateDescription = if (isSelected) "Selected" else "Not selected"
+                },
+            ) {
+                Text(
+                    "${seconds}s",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                    maxLines = 1,
+                )
             }
         }
     }
@@ -478,7 +516,7 @@ private fun DelayModeChoice(
         } else {
             ButtonDefaults.filledTonalButtonColors()
         },
-        border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.onPrimaryContainer) else null,
+        border = if (selected) BorderStroke(2.dp, SelectionOutline()) else null,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Row(verticalAlignment = Alignment.CenterVertically) {
