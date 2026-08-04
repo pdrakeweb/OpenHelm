@@ -1,0 +1,81 @@
+# Simulated MFD configuration. Everything here has a built-in default; delete keys to use it.
+
+# Advertised LAN IPv4 the guest (Genymotion, bridged) will connect to.
+# Leave blank to auto-detect the host's primary LAN IP.
+interface: ""
+
+# ---------------------------------------------------------------------------------------------
+# Identity + stream format below are taken from a LIVE CAPTURE of a real Raymarine E9 on its own
+# Wi-Fi AP (recorded in the parent research repo). Keeping these
+# aligned means the app sees the same advert and the same H.264 bitstream shape as on the boat.
+# ---------------------------------------------------------------------------------------------
+
+model:  "E9"                 # -> raymarine-mfd-model  (real E9 reports exactly "E9")
+serial: "E70021 0620410"     # -> raymarine-mfd-serial (note the SPACE, as the real unit sends)
+
+rtsp:
+  # The REAL MFD serves RTSP on 8554. We default to 8555 because the Android Emulator's QEMU
+  # process itself binds 127.0.0.1:8554 for its internal gRPC console service, which pre-empts
+  # the AVD's 10.0.2.2 -> host NAT for that exact port (guest connections hit qemu's own binding,
+  # get instant EOF, never reach us). Confirmed via `netstat -ano` (PID on 127.0.0.1:8554 was
+  # qemu-system-x86_64.exe). On a BRIDGED rig (Genymotion) there is no collision -> set 8554 for
+  # full fidelity. The app itself does not care: it uses whatever port the SRV record advertises.
+  port: 8555
+  # Real E9: raymarine-mfd-rtsp-path = "RAYMARINEMFD"  ->  rtsp://<ip>:<port>/RAYMARINEMFD
+  # This value also satisfies the app's case-sensitive contains("RAYMARINEMFD") gate (as.java),
+  # which is why the real device needs no separate marker TXT key.
+  path: "RAYMARINEMFD"
+
+  # --- VIDEO MODE ----------------------------------------------------------------------------
+  # mode 1 "rtsp" (default) — RTP over UDP, exactly as the real E9 serves it. MFD-faithful, and
+  #                the only mode whose behaviour means anything about the boat.
+  #                ⚠ DOES NOT WORK ON A STANDARD AVD — do not try it there until someone finds a
+  #                workaround for SLIRP's inbound-UDP problem. Use a real phone.
+  # mode 2 "hls"  — additionally serves HLS over HTTP/TCP so an AVD *can* render video. A real MFD
+  #                serves no HLS, and HLS runs seconds behind live, so use it to test the player,
+  #                Surface, layout and lifecycle — never latency or transport behaviour.
+  mode: "rtsp"
+  hls_port: 8888
+  # "testsrc" (synthetic pattern), "clock" (latency rig, below) or "loop:C:/path/to/clip.mp4".
+  #
+  # "clock" burns a large frame counter into every frame. To measure how much latency the *app*
+  # adds over a reference client, point both at this stream and photograph them together:
+  #     ffplay -rtsp_transport udp -fflags nobuffer -flags low_delay -framedrop rtsp://<ip>:8555/RAYMARINEMFD
+  # then  (app_frame - ffplay_frame) / fps  =  seconds of extra buffering in the app.
+  # No clock sync needed: both clients are showing the same frames, just at different times.
+  # The shipped loop is a synthetic chartplotter scene drawn by
+  # scripts/generate_chartplotter_video.py — already H.264 high@L4.0 800x480 yuv420p, i.e. the
+  # real MFD's bitstream shape. It drifts slowly so a stalled decoder is distinguishable from a
+  # live stream. The path is relative to this file, so a fresh clone works unedited.
+  source: "loop:assets/lake_erie_chartplotter.mp4"
+
+  # --- H.264 format, matched to the real E9's SDP + decoded SPS -------------------------------
+  # Real SDP: m=video 0 RTP/AVP 96 / a=rtpmap:96 H264/90000  (payload 96 + 90kHz are automatic)
+  # Real SPS: profile_idc=100 (High), level_idc=40 (4.0), 800x480, 4:2:0
+  width:   800
+  height:  480
+  fps:     15                # not advertised by the MFD's SDP; 15 keeps the loop cheap
+  profile: "high"            # real E9 = High Profile.  (was "baseline" -- NOT what the MFD sends)
+  level:   "4.0"             # real E9 = Level 4.0
+  pix_fmt: "yuv420p"
+  gop:     30
+  bitrate: "2M"
+
+  # Transports the RTSP server OFFERS the app. The real MFD (GStreamer RTSP server) serves RTP
+  # over UDP; a TCP-interleaved request to the real unit stalls forever (proven with
+  # `ffmpeg -rtsp_transport tcp`). So leaving this unset (offer UDP) is the faithful setting.
+  # Set `transports: ["tcp"]` ONLY as a deliberate deviation, to force a client that cannot pick
+  # its own transport (android.media.MediaPlayer proposes UDP first) onto TCP interleaving.
+  # transports: ["tcp"]
+
+rrc:
+  # Real E9 advertises the RRC control channel on TCP 50000. The app takes the port from the SRV
+  # record (or the generated manual-address line), so this is free fidelity.
+  port: 50000
+  # The app reads chars [2:4] of this value as hex and uses it as RRC frame byte[5].
+  # Real E9 sends "1.10" -> chars [2:4] = "10" -> version byte 0x10 (NOT 0x01).
+  # Set to e.g. "0x07" to exercise the version-mismatch path.
+  version: "1.10"
+
+# pt: (pan/tilt slew, _rym_pt._udp) is OUT OF SCOPE for v1 (decision Q6).
+# The wire codec + tests exist (mfd_emulator/pt_codec.py); nothing advertises it yet.

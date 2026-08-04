@@ -18,3 +18,16 @@ local.properties
 # OS
 .DS_Store
 Thumbs.db
+
+# MFD emulator (emulator/) — virtualenv, runtime work dir, downloaded media binaries, logs.
+# The emulator generates all of these on first run; none of them belong in the repository, and
+# auto.key is a private key.
+emulator/.venv/
+emulator/.run/
+emulator/bin/
+emulator/**/__pycache__/
+emulator/.pytest_cache/
+emulator/*.png
+emulator/auto.key
+emulator/auto.crt
+*.log

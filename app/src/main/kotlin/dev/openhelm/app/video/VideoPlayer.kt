@@ -74,9 +74,10 @@ data class VideoStats(
 
 /**
  * The whole video path: RTSP negotiation, RTP reception, depacketization, decode, Surface — with
- * nothing between the socket and the decoder that holds frames. See `docs/modernization-plan.md`
- * §3.3 for why owning this pipeline (rather than using a stock player) is the entire point of
- * this app.
+ * nothing between the socket and the decoder that holds frames. `docs/protocol.md` §2 has the
+ * video wire facts; `tests/11-latency.md` has why owning this pipeline rather than handing the
+ * URL to a stock player is the entire point of the app — a stock player's own buffering was
+ * ~4.6 s of the 6-7 s lag this replaces, and it exposes no knob to tune it.
  *
  * **Resilience rules**, matching [dev.openhelm.app.rrc.RrcClient]'s where they apply:
  *

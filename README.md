@@ -83,9 +83,19 @@ version. The full wire format is in [`docs/protocol.md`](docs/protocol.md).
 |---|---|
 | `protocol/` | Plain JVM Kotlin. Wire format, keycodes, RTP/H.264 depacketisation, SDP and discovery parsing. |
 | `app/` | Android app: Compose UI, `NsdManager` discovery, RTSP client, `MediaCodec` video. |
+| `emulator/` | A simulated MFD in Python: mDNS, the control channel and RTSP video, plus a fault-injection surface that can break any of them on demand. |
+| `tests/` | The manual test suite, numbered 01–20. Start at [`tests/README.md`](tests/README.md). |
 
 `protocol/` carries no Android dependencies, so the wire format can be tested without a device and
 reused by desktop tooling.
+
+`emulator/` is what makes the app developable away from the boat, and it is the other half of the
+resilience work: every connection and video failure the app claims to survive is injected from
+there rather than argued about. It implements the display's side of the same protocol description
+the client implements, so the two are independent expressions of one document — a bug in one does
+not hide a matching bug in the other. See [`emulator/README.md`](emulator/README.md) and
+[`docs/emulator-limitations.md`](docs/emulator-limitations.md), which is the honest list of what
+the simulator cannot prove.
 
 ## Building
 

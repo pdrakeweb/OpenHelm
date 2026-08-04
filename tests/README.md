@@ -104,6 +104,10 @@ while [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" != "1
 **On this project's Windows/x86_64 dev machine, skip straight to an x86_64 AVD** for everything
 tagged **any**, and treat every **arm64**-tagged test as BLOCKED until rig B or C is available:
 
+Shell paths in this suite are relative to the **`openhelm/` root** — the directory holding
+`app/`, `tests/` and `emulator/`. `cd emulator` therefore means the MFD simulator that ships
+alongside the app; it is not a separate checkout.
+
 ```bash
 # 1. Start the simulator (host). --source clock burns a frame counter into every frame.
 cd emulator
