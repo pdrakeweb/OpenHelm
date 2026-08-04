@@ -20,14 +20,20 @@ formula — are **not** copyrightable expression and are what this app is built 
 - **STEPS:**
   ```bash
   cd openhelm
-  git ls-files '*.kt' '*.kts' '*.xml' \
-    | xargs grep -niE 'com\.raymarine|RayRemote|RayControl|smali|apktool'
+  git ls-files '*.kt' '*.kts' '*.xml' '*.py' '*.ps1' '*.sh' '*.yaml' '*.yml' \
+    | xargs grep -niE 'com\.raymarine|RayRemote|RayControl|smali|apktool|RayImageButton'
   ```
 - **EXPECTED:** No matches in code. Matches are permitted **only** in documentation that discusses
   provenance (`CLEAN-ROOM.md`, and prose in these test files).
-- **VERIFY:** Empty output over `*.kt`/`*.kts`/`*.xml`.
+- **VERIFY:** Empty output over every extension listed.
 - **PASS/FAIL:** PASS if empty. FAIL on any match in source — including an obfuscated class name
   (`ad`, `ao`, `RayImageButton`) copied from a decompile. Nothing is gained by reusing them.
+
+> **The Python extensions are not optional.** `emulator/` is Python and PowerShell, and it is the
+> part of this repo written *from* the protocol research — so it is the likeliest place for a
+> vendor identifier to reappear, and for a while it was the only part this grep did not read. An
+> extension list that lags what the repo contains is a check that passes because it looked
+> nowhere.
 
 > **One expected exception, by design.** The strings `raymarine-mfd-rtsp-path`,
 > `raymarine-mfd-model`, `raymarine-mfd-serial` and `raymarine-mfd-rrc-version` appear as constants
