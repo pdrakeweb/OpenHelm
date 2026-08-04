@@ -365,7 +365,7 @@ RRC version `0x01`.
 | `mfd_emulator/faults.py` / `console.py` | fault injection + keyboard menu |
 | `mfd_emulator/config.py` / `__main__.py` | config loader + entrypoint |
 | `tests/` | codec conformance, config, loopback, discovery-parse |
-| `scripts/` | `find_mfd.py` (real-MFD finder), `smoke_test.py`, `install_media_tools.ps1`, `push_device_config.ps1`, `generate_chartplotter_video.py` |
+| `scripts/` | `find_mfd.py` (real-MFD finder), `mfd_ctl.py` (drive a real display directly), `fault.py` (fire faults at a running emulator), `smoke_test.py`, `install_media_tools.ps1`, `generate_chartplotter_video.py`, `measure_avd_latency.py` |
 
 ---
 
