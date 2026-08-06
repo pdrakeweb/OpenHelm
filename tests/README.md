@@ -104,7 +104,7 @@ while [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" != "1
 **On this project's Windows/x86_64 dev machine, skip straight to an x86_64 AVD** for everything
 tagged **any**, and treat every **arm64**-tagged test as BLOCKED until rig B or C is available:
 
-Shell paths in this suite are relative to the **`openhelm/` root** — the directory holding
+Shell paths in this suite are relative to the **repository root** — the directory holding
 `app/`, `tests/` and `emulator/`. `cd emulator` therefore means the MFD simulator that ships
 alongside the app; it is not a separate checkout.
 
@@ -183,7 +183,7 @@ ADB="$LOCALAPPDATA/Android/Sdk/platform-tools/adb.exe"
 EMU="$LOCALAPPDATA/Android/Sdk/emulator/emulator.exe"
 PKG=dev.openhelm.app
 ACT=$PKG/.MainActivity
-APK=openhelm/app/build/outputs/apk/debug/app-debug.apk
+APK=app/build/outputs/apk/debug/app-debug.apk
 SIM=10.0.2.2:8555:50000:RAYMARINEMFD:10     # rig A manual address
 ```
 

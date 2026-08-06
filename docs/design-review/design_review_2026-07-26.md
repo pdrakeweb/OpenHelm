@@ -341,13 +341,12 @@ their size.
 | Phone | `OpenHelmPhone35` | pixel_9_pro | 1280×2856 | 420dpi | 35 (google_apis_playstore, x86_64) |
 
 Both booted headless (`-no-window -gpu swiftshader_indirect -no-audio -no-boot-anim`) on
-non-default ports (5586, 5588) to avoid colliding with AVDs already running in this
-shared working tree.
+non-default ports (5586, 5588) to avoid colliding with AVDs already running on the
+same machine.
 
-**Build:** `dev.openhelm.app` debug build, `openhelm/app/build/outputs/apk/debug/app-debug.apk`,
-built from the `raymarine-mfd-emulator-plan-01f91d` worktree
-(branch `claude/rayremote-mediaplayer-video-kpwoho`) via `gradlew assembleDebug`
-(already up to date at time of build — `BUILD SUCCESSFUL`, 43/43 tasks up-to-date).
+**Build:** `dev.openhelm.app` debug build, `app/build/outputs/apk/debug/app-debug.apk`,
+via `gradlew assembleDebug` (already up to date at time of build — `BUILD SUCCESSFUL`,
+43/43 tasks up-to-date).
 
 **Backend:** the project's own MFD simulator (`emulator/`, `mfd.yaml`), already running
 against a real captured Raymarine E9 video loop, RTSP on `10.0.2.2:8555`, RRC on port

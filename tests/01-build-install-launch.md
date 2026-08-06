@@ -41,9 +41,9 @@ Two toolchain facts were settled painfully and will silently break the build if 
 - **SETUP:** As 01.1.
 - **STEPS:**
   ```bash
-  grep -n 'kotlin("android")' openhelm/app/build.gradle.kts openhelm/build.gradle.kts
-  grep -n 'distributionUrl' openhelm/gradle/wrapper/gradle-wrapper.properties
-  grep -n 'com.android.application' openhelm/build.gradle.kts
+  grep -n 'kotlin("android")' app/build.gradle.kts build.gradle.kts
+  grep -n 'distributionUrl' gradle/wrapper/gradle-wrapper.properties
+  grep -n 'com.android.application' build.gradle.kts
   ```
 - **EXPECTED:** No `kotlin("android")` anywhere — AGP 9 ships built-in Kotlin and **fails outright**
   if the standalone plugin is also applied. The AGP version must be one the committed Gradle

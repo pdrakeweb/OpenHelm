@@ -139,7 +139,7 @@ opens, on **every** connect path including retries.
 - **SETUP:** Any.
 - **STEPS:**
   ```bash
-  grep -rniE "getBSSID|getSSID|ACCESS_FINE_LOCATION|ACCESS_COARSE_LOCATION" openhelm/app/src/main/
+  grep -rniE "getBSSID|getSSID|ACCESS_FINE_LOCATION|ACCESS_COARSE_LOCATION" app/src/main/
   "$ADB" shell dumpsys package $PKG | grep -i location
   ```
 - **EXPECTED:** No matches. These values are location-redacted on modern Android and return
@@ -157,7 +157,7 @@ RTSP and the control channel are plaintext by nature.
 - **SETUP:** Any.
 - **STEPS:** Connect and confirm video and control both work; check the manifest.
   ```bash
-  grep -n "usesCleartextTraffic\|networkSecurityConfig" openhelm/app/src/main/AndroidManifest.xml
+  grep -n "usesCleartextTraffic\|networkSecurityConfig" app/src/main/AndroidManifest.xml
   ```
 - **EXPECTED:** Cleartext to the display works. If a policy is declared it must not block the
   display's plain RTSP/RRC.
@@ -171,7 +171,7 @@ RTSP and the control channel are plaintext by nature.
 - **SETUP:** Any.
 - **STEPS:**
   ```bash
-  grep -n "enableOnBackInvokedCallback" openhelm/app/src/main/AndroidManifest.xml
+  grep -n "enableOnBackInvokedCallback" app/src/main/AndroidManifest.xml
   ```
   Then, on device, begin a back gesture from the screen edge and hold partway.
 - **EXPECTED:** The manifest opts in, and the back gesture shows the platform's predictive preview

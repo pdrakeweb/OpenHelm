@@ -1,6 +1,6 @@
 # OpenHelm code review — 2026-07-28
 
-**Scope:** the full `openhelm/` codebase — `protocol/` (5 source files, 4 test files) and `app/`
+**Scope:** the full codebase — `protocol/` (5 source files, 4 test files) and `app/`
 (30 source files, 6 test files), ~8,400 lines of Kotlin, plus the Gradle build, manifest, and
 docs. Every source file was read in full. This is a code review; the UI/UX ground was covered by
 the [2026-07-26 design review](../design-review/design_review_2026-07-26.md) and is not re-litigated
@@ -329,7 +329,7 @@ demux with an embedded keepalive response.
 | L6 | Low | [VideoGestures.kt:68, 116](../../app/src/main/kotlin/dev/openhelm/app/ui/VideoGestures.kt) | `System.currentTimeMillis()` for the pinch-grace and move-throttle timing — wall clock, jumps with NTP/user changes. Use `SystemClock.uptimeMillis()` (or the `PointerEvent`'s own `uptimeMillis`). |
 | L7 | Low | [EndpointStore.kt:59-66](../../app/src/main/kotlin/dev/openhelm/app/config/EndpointStore.kt) | Stale doc: "…or null to follow the system's light/dark setting." Since the `DefaultPalette` decision ([Theme.kt:27-35](../../app/src/main/kotlin/dev/openhelm/app/ui/Theme.kt)) null means DARK regardless of system setting. In a codebase whose comments are this load-bearing, drift is worth fixing. |
 | L8 | Low | [MainViewModel.kt:58-65](../../app/src/main/kotlin/dev/openhelm/app/ui/MainViewModel.kt) | `remembered` and `recentShortlist` are two eager `stateIn`s over the same DataStore flow — a second collector for a `.take(4)`. Derive the shortlist from `remembered` (`map` on the StateFlow) instead. |
-| L9 | Low | [RrcDecoder.kt:34-56](../../protocol/src/main/kotlin/dev/openhelm/protocol/RrcDecoder.kt) | `ArrayDeque<Byte>` boxes every byte and rebuilds frames element-by-element. Harmless at control-channel rates; a `ByteArray` ring or `okio.Buffer`-style windowing would be the idiomatic fix if this is ever fed video-rate data. Also note `RrcDecoder`/`RrcFrame` have no callers inside this repo besides tests (the MFD never speaks on the socket) — presumably the simulator's half lives in the parent repo; worth a KDoc line saying the decoder exists for tooling/simulators so the subtree-split repo doesn't read as shipping dead code. |
+| L9 | Low | [RrcDecoder.kt:34-56](../../protocol/src/main/kotlin/dev/openhelm/protocol/RrcDecoder.kt) | `ArrayDeque<Byte>` boxes every byte and rebuilds frames element-by-element. Harmless at control-channel rates; a `ByteArray` ring or `okio.Buffer`-style windowing would be the idiomatic fix if this is ever fed video-rate data. Also note `RrcDecoder`/`RrcFrame` have no callers in the app itself besides tests (the MFD never speaks on the socket) — the decoding half is what the simulator and diagnostic tooling need; worth a KDoc line saying so, and the repo doesn't read as shipping dead code. |
 | L10 | Low | [Rrc.kt:22](../../protocol/src/main/kotlin/dev/openhelm/protocol/Rrc.kt) | `Rrc.MAGIC` is a `public val ByteArray` — mutable contents on an `explicitApi()` library surface. Expose a copy, or keep the array `private` and expose the four bytes only where needed (`RrcDecoder` is in-module). |
 
 ---
