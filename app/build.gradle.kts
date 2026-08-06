@@ -19,8 +19,39 @@ android {
         versionName = "0.1.0"
     }
 
+    // The release signing key is deliberately not in this repository. Point at it from
+    // ~/.gradle/gradle.properties (OPENHELM_STORE_FILE, OPENHELM_STORE_PASSWORD,
+    // OPENHELM_KEY_ALIAS, OPENHELM_KEY_PASSWORD), or from the identically named environment
+    // variables in CI. Without them the release build still succeeds — it just comes out
+    // unsigned, so a clone can build the project without holding the key.
+    val signingProp = { name: String ->
+        (findProperty(name) as String?)?.takeIf { it.isNotBlank() } ?: System.getenv(name)
+    }
+    val releaseStoreFile = signingProp("OPENHELM_STORE_FILE")
+
+    signingConfigs {
+        if (releaseStoreFile != null) {
+            create("release") {
+                storeFile = file(releaseStoreFile)
+                storePassword = signingProp("OPENHELM_STORE_PASSWORD")
+                keyAlias = signingProp("OPENHELM_KEY_ALIAS")
+                keyPassword = signingProp("OPENHELM_KEY_PASSWORD")
+
+                // v3 carries proof-of-rotation, which is the only way this key could ever be
+                // replaced without every existing install having to be uninstalled first. AGP
+                // leaves it off by default. v2 stays on for devices before Android 9.
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (releaseStoreFile != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+
             // R8 for shrinking, not for secrecy — the project is open source. Compose and Hilt
             // ship their own consumer keep rules; anything app-specific goes in proguard-rules.pro.
             isMinifyEnabled = true
