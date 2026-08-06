@@ -1,11 +1,10 @@
 # 12 — Clean-room provenance and packaging
 
-OpenHelm is intended to be split out of its parent repository and published as open source. That
-parent also contains a decompilation of a vendor APK, done for interoperability research, and
-**none of that material may end up here**. These checks are cheap, they are the ones that must pass
-before any release, and they belong in CI once the project is extracted.
+OpenHelm interoperates with hardware whose original client software is proprietary. Interoperability
+research on that client was carried out separately, and **none of that material may end up here**.
+These checks are cheap, they are the ones that must pass before any release, and they belong in CI.
 
-The rule: nothing in `openhelm/` may be derived from the vendor's copyrighted expression. Facts
+The rule: nothing in this project may be derived from the vendor's copyrighted expression. Facts
 about bytes on a wire — frame layout, opcode numbers, keycode values, service names, the coordinate
 formula — are **not** copyrightable expression and are what this app is built from.
 
@@ -64,42 +63,36 @@ formula — are **not** copyrightable expression and are what this app is built 
 
 ---
 
-### 12.3 Commits touching `openhelm/` touch nothing else
+### 12.3 No commit message references the interoperability research
 
-The subtree is extracted with `git subtree split`, so commit messages travel with it into a public
-history. A commit that mixes in parent-repo work becomes a permanently wrong message.
+Commit messages are as public as the code. A message naming the vendor's package, its obfuscated
+classes, or the research tooling is a permanent part of the history.
 
 - **STEPS:**
   ```bash
-  # from the repo root, for each commit that touches openhelm/
-  for c in $(git log --format=%h -- openhelm/); do
-    outside=$(git show --stat --name-only --format="" $c | grep -v '^openhelm/' | grep -v '^$')
-    [ -n "$outside" ] && { echo "=== $c ALSO TOUCHES:"; echo "$outside"; }
-  done
+  git log --format='%B' | grep -niE 'com\.raymarine|RayRemote|RayControl|smali|apktool|decompil'
   echo "check complete"
   ```
-- **EXPECTED:** No commit that touches `openhelm/` also touches anything outside it.
-- **VERIFY:** The loop prints only `check complete`.
-- **PASS/FAIL:** PASS if isolated. FAIL listing any mixed commit. (One historical commit is known to
-  have swept in another session's in-progress work via a blanket `git add` — hence the repo rule to
-  stage explicit paths and read `git diff --cached --name-only` before committing.)
+- **EXPECTED:** No matches.
+- **VERIFY:** The grep prints nothing before `check complete`.
+- **PASS/FAIL:** PASS if empty. FAIL listing any message that would not make sense in a public
+  repository. (Stage explicit paths and read `git diff --cached --name-only` before committing —
+  a blanket `git add` is how unrelated work acquires the wrong commit message.)
 
 ---
 
-### 12.4 The subtree extracts cleanly
+### 12.4 The history is self-contained
 
 - **STEPS:**
   ```bash
-  git subtree split --prefix=openhelm -b openhelm-only
-  git log --oneline openhelm-only | head -20
-  git log --oneline openhelm-only -- decompiled/ assets/     # must be empty
-  git branch -D openhelm-only                                 # clean up
+  git log --oneline | head -20
+  # every path this history has ever touched
+  git log --pretty=format: --name-only | sort -u | grep -v '^$' | head -40
   ```
-- **EXPECTED:** The split succeeds and the resulting history reads as a standalone project. No
-  commit in it references parent-repo paths, and no message references the decompilation work.
-- **VERIFY:** The `decompiled/`/`assets/` query returns nothing; scan the messages for anything that
-  would not make sense in a public repository.
-- **PASS/FAIL:** PASS if the extracted history is self-contained and its messages stand alone.
+- **EXPECTED:** The history reads as a standalone project: every path belongs to this repository,
+  and no commit references files it does not contain.
+- **VERIFY:** The path list contains only this project's own files.
+- **PASS/FAIL:** PASS if the history is self-contained and its messages stand alone.
 
 ---
 
@@ -154,7 +147,7 @@ history. A commit that mixes in parent-repo work becomes a permanently wrong mes
 The protocol spec is the input this app was written from; the two drifting apart is how a silent
 interoperability bug gets in.
 
-- **STEPS:** Cross-read `openhelm/docs/protocol.md` against `protocol/src/main/kotlin/...`:
+- **STEPS:** Cross-read `docs/protocol.md` against `protocol/src/main/kotlin/...`:
   - magic `45 43 52 52`, 9-byte header, little-endian payload length;
   - opcodes 1 button / 2 zoom / 3 touch, with zoom explicitly **not** modelled as a pointer;
   - the keycode table;

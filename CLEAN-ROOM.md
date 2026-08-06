@@ -1,8 +1,8 @@
 # Clean-room provenance
 
-OpenHelm is intended to be split out of its parent repository and published as open source. That
-parent repository also contains a decompilation of Raymarine's 2017 `RayRemote` APK, done for
-interoperability research. **None of that material may end up here.**
+OpenHelm interoperates with hardware whose original client software is proprietary. Interoperability
+research on that client was carried out separately, and deliberately kept apart from this project.
+**None of that material may end up here.**
 
 This document is the rule, the reasoning, and the check.
 
@@ -10,9 +10,9 @@ This document is the rule, the reasoning, and the check.
 
 ## The rule
 
-**Nothing in `openhelm/` may be derived from Raymarine's copyrighted expression.**
+**Nothing in this project may be derived from Raymarine's copyrighted expression.**
 
-Concretely, the following must never appear in this directory or its git history:
+Concretely, the following must never appear in this repository or its git history:
 
 | ❌ Never | Why |
 |---|---|
@@ -59,7 +59,7 @@ functions (Home, Menu, Back, Range, WPT) — that is a hardware fact, not a copi
 
 ## The check
 
-Before publishing, and in CI once this is split out:
+In CI, and before any release:
 
 ```bash
 # 1. No file may reference the original package or its obfuscated class names
@@ -68,27 +68,16 @@ grep -rniE 'com\.raymarine|RayRemote|RayControl|smali|apktool' --include='*.kt' 
 # 2. No binary assets should have arrived from anywhere but this project
 find . -type f \( -name '*.png' -o -name '*.jpg' -o -name '*.webp' \) -not -path './.git/*'
 
-# 3. The subtree's history must not contain parent-repo paths
-git log --oneline -- decompiled/ assets/
+# 3. No commit message may reference the interoperability research
+git log --format='%B' | grep -niE 'com\.raymarine|RayRemote|RayControl|smali|apktool|decompil'
 ```
 
 Expected: (1) matches only in documentation *discussing* provenance, such as this file; (2) empty
 or only files authored here; (3) empty.
 
-**One expected exception.** The strings `raymarine-mfd-rtsp-path`, `raymarine-mfd-model`,
-`raymarine-mfd-serial` and `raymarine-mfd-rrc-version` appear as constants in `protocol/`. These are
-**DNS-SD TXT keys — literal bytes on the wire**. A client that does not send exactly those strings
-cannot talk to the device at all, so they are protocol facts of the same kind as an opcode number,
-not branding and not copied expression. The check above is written not to flag them; that is
-deliberate, not an oversight.
-
-## Splitting out
-
-This directory is developed inside the parent repo but committed so it can be extracted cleanly:
-
-```bash
-git subtree split --prefix=openhelm -b openhelm-only
-```
-
-**Commits touching `openhelm/` should touch nothing else**, so the extracted history reads as a
-standalone project and no commit message references the decompilation work.
+**Expected exceptions.** The strings `raymarine-mfd-rtsp-path`, `raymarine-mfd-model`,
+`raymarine-mfd-serial` and `raymarine-mfd-rrc-version` appear as constants in `protocol/`, and the
+RTSP path `RAYMARINEMFD` appears in the app and its tests. These are **literal bytes on the wire** —
+DNS-SD TXT keys and a URL path. A client that does not send exactly those strings cannot talk to the
+device at all, so they are protocol facts of the same kind as an opcode number, not branding and not
+copied expression. The check above is written not to flag them; that is deliberate, not an oversight.
