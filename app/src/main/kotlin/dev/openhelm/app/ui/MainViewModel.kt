@@ -528,6 +528,18 @@ class MainViewModel @Inject constructor(
     private var touchUpJob: Job? = null
 
     /**
+     * A previous tap's UP frame, queued by the minimum-dwell rule below and not yet on the wire.
+     *
+     * Held here — rather than only inside the delayed coroutine — so a DOWN that arrives before the
+     * dwell elapses can flush it immediately instead of cancelling it. [Job.cancel] discards the
+     * dwell coroutine before it reaches its `rrc.send`, and cancelling used to be the whole story: a
+     * second tap landing inside the first one's 90 ms window dropped the first tap's UP entirely,
+     * which is indistinguishable on the display from a held-down button. The MFD only cleared it on
+     * its own next touch there, because nothing else in this app was ever going to send that UP.
+     */
+    private var pendingTouchUp: ByteArray? = null
+
+    /**
      * The last touch put on the wire, as a position on the picture — for the diagnostics overlay.
      *
      * A field report of taps landing in the wrong place needed a way to tell two very different
@@ -550,10 +562,24 @@ class MainViewModel @Inject constructor(
         val (nx, ny) = normalise(x, y, width, height)
         val gesture = TouchGesture(endpoint.rrcVersion)
         touchGesture = gesture
-        touchUpJob?.cancel()
+        flushPendingTouchUp()
         touchDownAtMs = SystemClock.uptimeMillis()
         noteTouch("↓", nx, ny)
         rrc.send(gesture.down(nx, ny))
+    }
+
+    /**
+     * Put a still-queued UP on the wire right now, instead of letting the next DOWN cancel it away.
+     *
+     * Ordering still holds: this always runs before the DOWN that triggered it goes out, so the
+     * display sees release-then-press for whatever it was showing, never two presses with no
+     * release between them.
+     */
+    private fun flushPendingTouchUp() {
+        touchUpJob?.cancel()
+        touchUpJob = null
+        pendingTouchUp?.let(rrc::send)
+        pendingTouchUp = null
     }
 
     fun videoTouchMove(x: Float, y: Float, width: Int, height: Int) {
@@ -573,8 +599,9 @@ class MainViewModel @Inject constructor(
      * back to a realistic dwell makes what we send look like what a finger does.
      *
      * The wait runs in the view-model scope rather than the gesture scope so lifting the finger
-     * still returns immediately, and it is cancelled by the next DOWN so a fast sequence of taps
-     * cannot deliver its releases out of order.
+     * still returns immediately. A DOWN that arrives before the dwell elapses no longer cancels this
+     * away — see [flushPendingTouchUp] — it sends this UP right then and starts its own dwell, so a
+     * fast sequence of taps still delivers every release, in order, just compressed in time.
      */
     fun videoTouchUp(x: Float, y: Float, width: Int, height: Int) {
         val gesture = touchGesture ?: return
@@ -586,9 +613,12 @@ class MainViewModel @Inject constructor(
             rrc.send(gesture.up(nx, ny))
             return
         }
+        val up = gesture.up(nx, ny)
+        pendingTouchUp = up
         touchUpJob = viewModelScope.launch {
             delay(MIN_TOUCH_DWELL_MS - held)
-            rrc.send(gesture.up(nx, ny))
+            pendingTouchUp = null
+            rrc.send(up)
         }
     }
 

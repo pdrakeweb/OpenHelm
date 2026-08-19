@@ -180,3 +180,35 @@ The open question this whole opcode exists to answer.
   necessarily a bug** — record it, confirm the arrow-key fallback still positions the cursor
   (see [06](06-control-channel.md) 06.9), and note the model and serial part number. **BLOCKED** on
   rigs A and B: the simulator logs frames but models no cursor.
+
+---
+
+### 08.11 A fast double-tap on the same control still releases both times
+
+The minimum-dwell rule (08.1's down/up pair is held apart by at least 90 ms — see
+[15.17](15-council-fixes.md)) queues a short tap's `up` on a delay so it never lands in the same
+instant as the `down`. That queue used to be **cancelled**, not flushed, whenever a second `down`
+arrived before it fired — which discarded the first tap's `up` outright rather than reordering it.
+The display was left believing a finger was still on whatever the first tap hit, and nothing in
+this app was ever going to tell it otherwise; only a touch on the MFD itself, at that same spot,
+cleared it. This is the on-screen-button-stays-pressed defect.
+
+- **SETUP:** Connected with video rendering.
+- **STEPS:**
+  ```bash
+  "$ADB" logcat -c
+  "$ADB" shell input tap <x> <y>
+  "$ADB" shell input tap <x> <y>
+  sleep 1
+  tail -20 emulator/emu.log
+  ```
+  Two `input tap` invocations back to back land well inside the 90 ms window on most rigs — if
+  yours does not, perform two fast taps by hand on a real device instead; the defect only shows
+  when the second `down` beats the first tap's queued `up` to the wire.
+- **EXPECTED:** Two complete pairs — `down seq=0` / `up seq=0`, `down seq=0` / `up seq=0` — in that
+  order, with no `down` appearing twice before an intervening `up`. Every `down` in the log is
+  followed by exactly one `up` before the next `down`.
+- **VERIFY:** `grep -c 'touch down' emulator/emu.log` equals `grep -c 'touch up' emulator/emu.log`.
+- **PASS/FAIL:** PASS if both taps are fully paired. FAIL if any `down` has no matching `up`, or the
+  counts differ — that is a release silently dropped, and on the MFD it reads as a button stuck down
+  until touched there directly.
