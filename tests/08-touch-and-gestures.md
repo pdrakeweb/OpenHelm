@@ -191,7 +191,10 @@ instant as the `down`. That queue used to be **cancelled**, not flushed, wheneve
 arrived before it fired — which discarded the first tap's `up` outright rather than reordering it.
 The display was left believing a finger was still on whatever the first tap hit, and nothing in
 this app was ever going to tell it otherwise; only a touch on the MFD itself, at that same spot,
-cleared it. This is the on-screen-button-stays-pressed defect.
+cleared it.
+
+This covers a *second* tap landing inside the first one's dwell window — it is not the cause of a
+**single**, isolated tap sticking. For that, see 08.12.
 
 - **SETUP:** Connected with video rendering.
 - **STEPS:**
@@ -212,3 +215,41 @@ cleared it. This is the on-screen-button-stays-pressed defect.
 - **PASS/FAIL:** PASS if both taps are fully paired. FAIL if any `down` has no matching `up`, or the
   counts differ — that is a release silently dropped, and on the MFD it reads as a button stuck down
   until touched there directly.
+
+---
+
+### 08.12 A single tap held in place sends no MOVE frames
+
+A field report: a real on-screen button stuck down on **every** press, single taps included, no
+second tap needed — so 08.11 is not the whole story. A button is normally pressed more
+deliberately than a quick chart tap: the finger stays down past the 70 ms pinch-grace window more
+often than not, and once it has, the loop used to send a MOVE frame for *any* pointer event that
+arrived, whether or not the finger had actually gone anywhere. A finger held still for 100–300 ms
+still produces a stream of `ACTION_MOVE` events from ordinary tremor — sub-pixel, invisible to the
+person doing it — and each one used to become an opcode-3 MOVE. A held tap on a button therefore
+reached the display as DOWN → MOVE → MOVE → … → UP: the shape of a drag, not a tap. That matches
+the original field report word for word — "a drag that only registered where it started" — for a
+gesture recognizer built to expect a tap on a discrete control.
+
+The fix withholds MOVE until the finger has cleared the platform's own touch slop
+(`viewConfiguration.touchSlop`) from where it landed. A held-but-stationary tap now sends DOWN and
+UP only, however long it is held; a real drag clears slop within a pixel or two and is unaffected.
+
+- **SETUP:** Connected with video rendering.
+- **STEPS:**
+  ```bash
+  "$ADB" logcat -c
+  "$ADB" shell input swipe <x> <y> <x> <y> 300
+  sleep 1
+  tail -20 emulator/emu.log
+  ```
+  Identical start/end coordinates make this a **held, stationary** press — `input swipe` reports
+  intermediate motion events at the same point for the duration, which is exactly the shape a
+  deliberate button press takes.
+- **EXPECTED:** Exactly `down seq=0` then `up seq=0`. **No `move` lines at all**, regardless of the
+  300 ms hold.
+- **VERIFY:** `grep -c 'touch move' emulator/emu.log` is `0` for this gesture.
+- **PASS/FAIL:** PASS if a held, stationary press produces down/up only. FAIL if any `move` frame
+  appears for a gesture that never left its starting point — that is the stuck-button defect this
+  case exists to catch. **ALSO:** repeat with real, deliberately different start/end coordinates
+  (a genuine drag) and confirm `move` lines still appear — the fix must not silence real dragging.

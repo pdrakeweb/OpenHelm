@@ -5,6 +5,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.getDistance
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.unit.IntSize
 
@@ -31,7 +32,10 @@ internal sealed interface VideoGesture {
  * — a pinch that leaks a tap to a chartplotter, a cancellation that leaves a finger logically down
  * — would be the most expensive place in the app to have two of anything.
  *
- * - **One finger** talks to the display: [onDown] / [onMove] / [onUp], in view pixels.
+ * - **One finger** talks to the display: [onDown] / [onMove] / [onUp], in view pixels. [onMove] is
+ *   withheld until the finger has cleared the platform's own touch slop — a tap held in place, which
+ *   is how a button gets pressed, must reach the display as DOWN/UP only, never as a drag that
+ *   happens to end where it started.
  * - **Two fingers** zoom and pan the local view via [onTransform], and are never forwarded.
  *
  * [onGesture] is a passive observer for drawing; it is given raw view positions and is free to do
@@ -79,6 +83,19 @@ internal suspend fun PointerInputScope.videoTouchGestures(
 
         var last = content(down.position)
         val downAtMs = down.uptimeMillis
+        // Whether the finger has travelled far enough from where it landed to count as a drag
+        // rather than a held tap. A finger held still for longer than PINCH_GRACE_MS — which is
+        // exactly how a button gets pressed, more deliberately than a quick chart tap — still
+        // produces a stream of ACTION_MOVE events from ordinary tremor, sub-pixel and invisible to
+        // the person doing it. Before this check, every one of those became an opcode-3 MOVE frame:
+        // a "held tap" on a button left the display fielding DOWN → MOVE → MOVE → … → UP, which is
+        // the shape of a drag, not a tap. The chart handles that shape fine — panning *is* a drag —
+        // but the original field report was specifically a stuck button and "a drag that only
+        // registered where it started", which is what a tap-vs-drag gesture recognizer does with a
+        // drag it does not expect on a discrete control. Android's own touch slop is the right
+        // threshold: it is what the platform itself uses to draw this same line.
+        var movedPastSlop = false
+        val touchSlop = viewConfiguration.touchSlop
         // The DOWN is deliberately NOT sent yet. A pinch begins as a single finger, so sending on
         // first contact meant every two-finger zoom emitted a DOWN and then an UP — a real tap on
         // the chart, which is exactly what this gesture's contract says a pinch must never do. The
@@ -139,9 +156,15 @@ internal suspend fun PointerInputScope.videoTouchGestures(
                 } else if (pressedChanges.size == 1 && touching) {
                     val change = pressedChanges.first()
                     val now = change.uptimeMillis
+                    if (!movedPastSlop && (change.position - down.position).getDistance() > touchSlop) {
+                        movedPastSlop = true
+                    }
                     if (now - downAtMs >= PINCH_GRACE_MS) {
                         sendDownOnce()
-                        if (now - lastMs >= MOVE_INTERVAL_MS) {
+                        // Only a gesture that has actually left the down point is a drag on the
+                        // wire. A held tap that never clears the slop sends no MOVE at all, however
+                        // long it is held — UP still goes out at the original down position.
+                        if (movedPastSlop && now - lastMs >= MOVE_INTERVAL_MS) {
                             lastMs = now
                             last = content(change.position)
                             onMove(last.x, last.y, viewSize)
