@@ -1,6 +1,9 @@
 package dev.openhelm.app
 
+import android.app.PictureInPictureParams
+import android.content.res.Configuration
 import android.os.Bundle
+import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -62,13 +65,41 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * The screen turning off, or the app being switched away from, both make the activity no
-     * longer visible and land here — the trigger for the affirmative video teardown described in
-     * [MainViewModel.onBackgrounded]'s doc.
+     * Not called at all if [onUserLeaveHint] below successfully entered picture-in-picture: the
+     * activity stays visible in its pinned window, so there is nothing here to tear down. It *is*
+     * called when that window is later swiped away, or the screen simply turns off — both genuine
+     * "no longer visible" cases that [MainViewModel.onBackgrounded] handles identically.
      */
     override fun onStop() {
         viewModel.onBackgrounded()
         super.onStop()
+    }
+
+    /**
+     * Called just before `onPause` when the user explicitly navigates away — Home, Recents,
+     * launching another app — and *not* for a screen turning off, an incoming call, or any other
+     * system-initiated interruption. That is exactly the distinction picture-in-picture needs: a
+     * session worth keeping visible in a small window belongs here, and a phone going to sleep in
+     * a pocket does not — it falls through to [onStop]'s affirmative teardown instead, because this
+     * declines to enter picture-in-picture for it.
+     */
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (viewModel.canEnterPip()) {
+            enterPictureInPictureMode(
+                PictureInPictureParams.Builder()
+                    // The display's picture is letterboxed to a fixed 5:3 (see README.md); matching
+                    // that here means the system's picture-in-picture window frames the video with
+                    // no further letterboxing inside it.
+                    .setAspectRatio(Rational(5, 3))
+                    .build(),
+            )
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        viewModel.updateInPip(isInPictureInPictureMode)
     }
 }
 

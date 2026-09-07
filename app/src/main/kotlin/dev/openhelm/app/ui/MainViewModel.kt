@@ -140,6 +140,36 @@ class MainViewModel @Inject constructor(
         private set
 
     /**
+     * Whether picture-in-picture is available for the current session — mirroring a live, real
+     * (non-simulated) connection. Read by `MainActivity.onUserLeaveHint` to decide whether to
+     * enter it; the setting itself ([pipEnabled]) is one factor, not the whole answer.
+     */
+    fun canEnterPip(): Boolean =
+        pipEnabled && mirroring && !simulationMode && connection.value is ConnectionState.Connected
+
+    /** The user's picture-in-picture preference. See [EndpointStore.pipEnabled]'s doc. */
+    var pipEnabled by mutableStateOf(true)
+        private set
+
+    fun selectPipEnabled(on: Boolean) {
+        if (on == pipEnabled) return
+        pipEnabled = on
+        viewModelScope.launch { store.savePipEnabled(on) }
+    }
+
+    /**
+     * True while `MainActivity` is actually in picture-in-picture, set from
+     * `onPictureInPictureModeChanged`. The UI reads this to show video only — no chrome, no
+     * controls, no touch forwarding (see [VideoPane]) — while pipped.
+     */
+    var inPip by mutableStateOf(false)
+        private set
+
+    fun updateInPip(value: Boolean) {
+        inPip = value
+    }
+
+    /**
      * Show the engineering readouts: the connected address in the status bar, and the video
      * pipeline's counters over the picture.
      *
@@ -207,6 +237,10 @@ class MainViewModel @Inject constructor(
 
         viewModelScope.launch {
             showDiagnostics = store.showDiagnostics.first()
+        }
+
+        viewModelScope.launch {
+            pipEnabled = store.pipEnabled.first()
         }
 
         viewModelScope.launch {

@@ -45,6 +45,7 @@ class EndpointStore @Inject constructor(@ApplicationContext private val context:
     private val transportKey = stringPreferencesKey("rtp_transport")
     private val rememberedKey = stringPreferencesKey("remembered_displays")
     private val paletteKey = stringPreferencesKey("helm_palette")
+    private val pipEnabledKey = booleanPreferencesKey("pip_enabled")
     private val diagnosticsKey = booleanPreferencesKey("show_diagnostics")
     private val delayModeKey = stringPreferencesKey("delay_notification")
     private val delayThresholdKey = intPreferencesKey("delay_threshold_seconds")
@@ -112,6 +113,19 @@ class EndpointStore @Inject constructor(@ApplicationContext private val context:
 
     suspend fun savePalette(value: String) {
         context.dataStore.edit { prefs -> prefs[paletteKey] = value }
+    }
+
+    /**
+     * Whether swiping away to another app while mirroring should keep the video visible in a
+     * picture-in-picture window instead of tearing the session down. On by default — it only ever
+     * takes effect when a session is actually live, so it costs nothing when off screen. Still
+     * subject to the OS's own per-app picture-in-picture permission, which this cannot grant.
+     */
+    val pipEnabled: Flow<Boolean> =
+        context.dataStore.data.map { prefs -> prefs[pipEnabledKey] ?: true }
+
+    suspend fun savePipEnabled(value: Boolean) {
+        context.dataStore.edit { prefs -> prefs[pipEnabledKey] = value }
     }
 
     /** Every remembered display, most-recently-connected first. */

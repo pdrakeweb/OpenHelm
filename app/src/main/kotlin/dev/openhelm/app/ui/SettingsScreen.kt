@@ -1,5 +1,7 @@
 package dev.openhelm.app.ui
 
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
@@ -46,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -124,6 +127,13 @@ fun SettingsScreen(
                 PaletteSection(
                     palette = palette,
                     onSelect = viewModel::selectPalette,
+                )
+            }
+
+            item(key = "pip") {
+                PictureInPictureSection(
+                    enabled = viewModel.pipEnabled,
+                    onToggle = viewModel::selectPipEnabled,
                 )
             }
 
@@ -575,6 +585,65 @@ private fun DiagnosticsSection(enabled: Boolean, onToggle: (Boolean) -> Unit) {
             }
             Spacer(Modifier.size(16.dp))
             Switch(checked = enabled, onCheckedChange = onToggle)
+        }
+    }
+}
+
+/**
+ * Whether swiping away while mirroring keeps the video visible in a small window rather than
+ * ending the session — see `MainActivity.onUserLeaveHint` and `VideoPane`'s `inPip` doc for what
+ * that window actually shows (video only, no touch forwarding).
+ *
+ * The switch here is this app's own opt-out; the link below opens Android's *separate*,
+ * per-app picture-in-picture permission, which this screen has no way to grant on the user's
+ * behalf — some OEMs default it off, and the switch above does nothing until it is on.
+ */
+@Composable
+private fun PictureInPictureSection(enabled: Boolean, onToggle: (Boolean) -> Unit) {
+    val context = LocalContext.current
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Picture-in-picture",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Spacer(Modifier.size(4.dp))
+                    Text(
+                        "Swiping away while mirroring keeps the video in a small window instead " +
+                            "of ending the session. Tapping that window only ever brings the app " +
+                            "back — it never sends a touch to the display.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.size(16.dp))
+                Switch(checked = enabled, onCheckedChange = onToggle)
+            }
+            TextButton(
+                onClick = {
+                    // The action string, not a named Settings constant — AOSP does not expose one
+                    // for this particular screen, only the string itself.
+                    val intent = Intent(
+                        "android.settings.PICTURE_IN_PICTURE_SETTINGS",
+                        Uri.fromParts("package", context.packageName, null),
+                    )
+                    // Not every OEM ships this exact settings screen; failing quietly beats a crash
+                    // over a settings shortcut that is convenience, not a required step.
+                    runCatching { context.startActivity(intent) }
+                },
+            ) {
+                Text("Also needs Android's picture-in-picture permission for this app — open it")
+            }
         }
     }
 }

@@ -85,19 +85,29 @@ fun RemoteScreen(viewModel: MainViewModel, state: ConnectionState, palette: Helm
     }
 
     if (viewModel.mirroring) {
-        Row(Modifier.fillMaxSize().padding(horizontal = HelmEdgeInset)) {
-            Box(Modifier.weight(1f).fillMaxHeight()) {
-                VideoPane(viewModel, palette, Modifier.fillMaxSize())
-                ConnectionBanner(
-                    viewModel = viewModel,
-                    state = state,
-                    modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
-                )
+        // inPip keeps this exact same Row/Box/VideoPane call structure — only the modifiers and
+        // which *siblings* render change — so entering or leaving picture-in-picture never disposes
+        // VideoPane's AndroidView. A structurally different tree here (a separate video-only
+        // composable, say) would tear down and recreate the TextureView on every PiP transition,
+        // which is exactly the video restart the whole feature exists to avoid.
+        val inPip = viewModel.inPip
+        Row(Modifier.fillMaxSize().padding(horizontal = if (inPip) 0.dp else HelmEdgeInset)) {
+            Box(if (inPip) Modifier.fillMaxSize() else Modifier.weight(1f).fillMaxHeight()) {
+                VideoPane(viewModel, palette, Modifier.fillMaxSize(), inPip = inPip)
+                if (!inPip) {
+                    ConnectionBanner(
+                        viewModel = viewModel,
+                        state = state,
+                        modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
+                    )
+                }
             }
-            DimmedWhenDisabled(controlsDisabled, Modifier.fillMaxHeight()) {
-                SidePanel(viewModel)
+            if (!inPip) {
+                DimmedWhenDisabled(controlsDisabled, Modifier.fillMaxHeight()) {
+                    SidePanel(viewModel)
+                }
+                rail()
             }
-            rail()
         }
     } else {
         Row(Modifier.fillMaxSize().padding(horizontal = HelmEdgeInset)) {

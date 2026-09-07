@@ -61,9 +61,21 @@ import java.util.Locale
  *
  * While zoomed, one-finger touches are mapped through the inverse transform, so the cursor lands
  * on the chart feature under the finger, not at the untransformed position.
+ *
+ * [inPip] strips this down to video only, for picture-in-picture: no touch forwarding (the system
+ * does not deliver touches to a pipped window's content anyway — restoring the app is the only
+ * thing a tap on it can do — but the gesture handlers are left unattached here too, rather than
+ * relying solely on that), no touch marks, no diagnostics text, no delay readout. The safety
+ * scrims ([StaleVideoOverlay]/[NoVideoOverlay]) stay: a stale chart must not read as live in a
+ * small window any more than a full-screen one.
  */
 @Composable
-fun VideoPane(viewModel: MainViewModel, palette: HelmPalette, modifier: Modifier = Modifier) {
+fun VideoPane(
+    viewModel: MainViewModel,
+    palette: HelmPalette,
+    modifier: Modifier = Modifier,
+    inPip: Boolean = false,
+) {
     val videoState by viewModel.videoState.collectAsStateWithLifecycle()
     val stats by viewModel.videoStats.collectAsStateWithLifecycle()
 
@@ -150,50 +162,53 @@ fun VideoPane(viewModel: MainViewModel, palette: HelmPalette, modifier: Modifier
                 },
             )
 
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .pointerInput(Unit) {
-                        videoTouchGestures(
-                            scaleOf = { scale },
-                            panOf = { pan },
-                            onTransform = { s, p -> scale = s; pan = p },
-                            onDown = { x, y, size -> viewModel.videoTouchDown(x, y, size.width, size.height) },
-                            onMove = { x, y, size -> viewModel.videoTouchMove(x, y, size.width, size.height) },
-                            onUp = { x, y, size -> viewModel.videoTouchUp(x, y, size.width, size.height) },
-                            onGesture = { gesture ->
-                                when (gesture) {
-                                    is VideoGesture.Touch -> {
-                                        touching = true
-                                        trail.add(gesture.position, pinch = false, nowNanos = System.nanoTime())
-                                    }
-                                    is VideoGesture.Pinch -> {
-                                        touching = true
-                                        gesture.positions.forEach {
-                                            trail.add(it, pinch = true, nowNanos = System.nanoTime())
+            if (!inPip) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            videoTouchGestures(
+                                scaleOf = { scale },
+                                panOf = { pan },
+                                onTransform = { s, p -> scale = s; pan = p },
+                                onDown = { x, y, size -> viewModel.videoTouchDown(x, y, size.width, size.height) },
+                                onMove = { x, y, size -> viewModel.videoTouchMove(x, y, size.width, size.height) },
+                                onUp = { x, y, size -> viewModel.videoTouchUp(x, y, size.width, size.height) },
+                                onGesture = { gesture ->
+                                    when (gesture) {
+                                        is VideoGesture.Touch -> {
+                                            touching = true
+                                            trail.add(gesture.position, pinch = false, nowNanos = System.nanoTime())
                                         }
+                                        is VideoGesture.Pinch -> {
+                                            touching = true
+                                            gesture.positions.forEach {
+                                                trail.add(it, pinch = true, nowNanos = System.nanoTime())
+                                            }
+                                        }
+                                        VideoGesture.End -> touching = false
                                     }
-                                    VideoGesture.End -> touching = false
-                                }
-                            },
-                            onHaptic = { moment ->
-                                when (moment) {
-                                    HapticMoment.TOUCH_DOWN -> HelmHaptics.touchDown(view)
-                                    HapticMoment.STEP -> HelmHaptics.gestureStep(view)
-                                }
-                            },
-                        )
-                    },
-            )
+                                },
+                                onHaptic = { moment ->
+                                    when (moment) {
+                                        HapticMoment.TOUCH_DOWN -> HelmHaptics.touchDown(view)
+                                        HapticMoment.STEP -> HelmHaptics.gestureStep(view)
+                                    }
+                                },
+                            )
+                        },
+                )
 
-            // Where the finger went, fading. This was simulator-only, on the reasoning that a real
-            // session has the display's own cursor as feedback and live video should carry no
-            // decoration. In practice the display's response arrives a beat later over a video
-            // link, so between finger-down and the cursor moving there was nothing at all to say
-            // the touch had registered — and a mark that is gone inside a second is not decoration
-            // on a chart, it is the receipt for an action already taken.
-            Canvas(Modifier.fillMaxSize()) {
-                trail.draw(this, markClock, markColor)
+                // Where the finger went, fading. This was simulator-only, on the reasoning that a
+                // real session has the display's own cursor as feedback and live video should
+                // carry no decoration. In practice the display's response arrives a beat later
+                // over a video link, so between finger-down and the cursor moving there was
+                // nothing at all to say the touch had registered — and a mark that is gone inside
+                // a second is not decoration on a chart, it is the receipt for an action already
+                // taken.
+                Canvas(Modifier.fillMaxSize()) {
+                    trail.draw(this, markClock, markColor)
+                }
             }
         }
 
@@ -237,7 +252,7 @@ fun VideoPane(viewModel: MainViewModel, palette: HelmPalette, modifier: Modifier
         // Bottom-left, and properly opaque. Along the top it sat over the data bar the display
         // draws across its own top edge — two rows of small text on top of each other, neither
         // readable — and at a third opacity the chart showed straight through the digits.
-        if (viewModel.showDiagnostics) {
+        if (!inPip && viewModel.showDiagnostics) {
             Text(
                 text = buildString {
                     append(stats.fps).append(" fps · q").append(stats.queueDepth)
@@ -274,7 +289,7 @@ fun VideoPane(viewModel: MainViewModel, palette: HelmPalette, modifier: Modifier
         // stays out of the way until the picture is actually late (see DelayNotification).
         val thresholdMs = viewModel.delayThresholdSeconds * 1_000
         val late = stats.latencyMs >= thresholdMs
-        val showDelay = videoState == VideoState.Streaming && stats.latencyMs > 0 &&
+        val showDelay = !inPip && videoState == VideoState.Streaming && stats.latencyMs > 0 &&
             when (viewModel.delayNotification) {
                 DelayNotification.ALWAYS -> true
                 DelayNotification.WHEN_DELAYED -> late
