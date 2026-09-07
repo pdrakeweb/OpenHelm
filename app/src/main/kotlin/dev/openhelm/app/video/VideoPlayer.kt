@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * How RTP reaches us. UDP is the only transport a real display can serve — a TCP-interleaved
@@ -126,6 +127,14 @@ class VideoPlayer @Inject constructor(
     @Volatile
     private var sawMedia = false
 
+    /**
+     * The transport the current pipeline attempt actually opened with — read by [stop] to decide
+     * whether it can unblock the receive loop without touching the RTSP control socket. See
+     * [stop]'s doc.
+     */
+    @Volatile
+    private var activeTransport = RtpTransport.UDP
+
     fun start(endpoint: MfdEndpoint, surface: Surface, transport: RtpTransport) {
         val previous = job
         previous?.cancel()
@@ -138,6 +147,7 @@ class VideoPlayer @Inject constructor(
             var attempt = 0
             var active = transport
             while (currentCoroutineContext().isActive) {
+                activeTransport = active
                 decoderError = null
                 reachedPlay = false
                 sawMedia = false
@@ -179,23 +189,58 @@ class VideoPlayer @Inject constructor(
         }
     }
 
+    /**
+     * Stop streaming — and tell the display so, rather than just walking away from the socket.
+     *
+     * This used to close every socket, including the RTSP control connection, in the same breath
+     * as cancelling the pipeline job. That closed the connection [runPipeline]'s own `finally`
+     * block needed to send RTSP TEARDOWN on, so TEARDOWN either never went out or landed on an
+     * already-dead socket and was swallowed as "the point of TEARDOWN is politeness, the socket is
+     * closing either way" ([RtspSession.teardown]). The MFD's RTSP server was left holding a
+     * session nobody told it to end — which is what turning the phone off (or backgrounding the
+     * app; see [dev.openhelm.app.ui.MainViewModel.onBackgrounded]) surfaced as: video working fine
+     * before sleep, and failing to reconnect for a while after waking, because the reconnect had to
+     * fight a server-side session already in an unknown state instead of a clean one.
+     *
+     * The fix closes only the UDP sockets first. RTP over UDP keeps the media path entirely
+     * separate from the RTSP control connection, so closing just [rtpSocket]/[rtcpSocket] unblocks
+     * [receiveUdp]'s blocked `receive()` — the actual reason `stop()` ever needed to close anything
+     * synchronously — without touching the socket TEARDOWN needs. The cancelled pipeline then dies
+     * with an ordinary `IOException`, unwinds through its own `finally`, and sends TEARDOWN on a
+     * control socket that is still open. Only once that has had a bounded chance to happen
+     * ([TEARDOWN_GRACE_MS]) does this force-close everything, in case the pipeline is stuck
+     * somewhere TEARDOWN cannot reach (a dead peer, a decoder wedged in [H264Decoder.stop]).
+     *
+     * TCP-interleaved carries RTP *inside* the control connection, so there is no separate socket
+     * to close for it — that transport only ever talks to the project's own simulator, never a real
+     * display, so it keeps the old close-everything-at-once behaviour.
+     */
     fun stop() {
         val previous = job
         job = null
-        previous?.cancel()
-        closeSockets()
+        // Optimistic UI update: the caller (a Disconnect tap, backgrounding, turning mirroring
+        // off) should see Idle immediately, not after however long the graceful teardown below
+        // takes.
         _state.value = VideoState.Idle
         _stats.value = VideoStats()
-        // The cancelled loop may still write a final Failed on its way out (its isActive check
-        // and the write are not atomic). Re-assert Idle once it has fully unwound, unless a new
-        // start() owns the state by then.
-        if (previous != null) {
-            scope.launch {
-                previous.join()
-                if (job == null) {
-                    _state.value = VideoState.Idle
-                    _stats.value = VideoStats()
-                }
+        if (previous == null) {
+            closeSockets()
+            return
+        }
+        if (activeTransport == RtpTransport.UDP) {
+            rtpSocket?.close()
+            rtcpSocket?.close()
+        }
+        previous.cancel()
+        scope.launch {
+            withTimeoutOrNull(TEARDOWN_GRACE_MS) { previous.join() }
+            closeSockets()
+            // The cancelled loop may still write a final Failed on its way out (its isActive check
+            // and the write are not atomic). Re-assert Idle once it has fully unwound, unless a new
+            // start() owns the state by then.
+            if (job == null) {
+                _state.value = VideoState.Idle
+                _stats.value = VideoStats()
             }
         }
     }
@@ -476,6 +521,13 @@ class VideoPlayer @Inject constructor(
         const val RTP_STALL_TIMEOUT_MS = 10_000
         const val RETRY_BACKOFF_MS = 3_000L
         const val MAX_BACKOFF_MS = 15_000L
+
+        /**
+         * How long [stop] waits for the pipeline's own graceful RTSP TEARDOWN before force-closing
+         * the control socket out from under it. Generous for a one-hop LAN round trip, short enough
+         * that a genuinely dead peer does not make backgrounding feel sluggish.
+         */
+        const val TEARDOWN_GRACE_MS = 2_000L
 
         /**
          * Big enough to absorb an IDR burst arriving between two receive() calls, small enough

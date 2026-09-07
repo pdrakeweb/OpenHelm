@@ -3,6 +3,7 @@ package dev.openhelm.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -12,7 +13,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.openhelm.app.rrc.ConnectionState
 import dev.openhelm.app.ui.ConnectScreen
 import dev.openhelm.app.ui.HelmPalette
@@ -28,12 +28,15 @@ import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    // An Activity-level property, not resolved inside setContent, so the lifecycle callbacks below
+    // — which run outside Compose entirely — can reach the same instance Compose is observing.
+    private val viewModel: MainViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            // The view model is resolved above the theme, not inside AppRoot, because the palette
-            // it holds decides the theme for every screen below.
-            val viewModel: MainViewModel = viewModel()
+            // The palette is read above the theme, not inside AppRoot, because it decides the
+            // theme for every screen below.
             val palette = viewModel.palette ?: DefaultPalette
 
             OpenHelmTheme(palette = palette) {
@@ -51,6 +54,21 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        viewModel.onForegrounded()
+    }
+
+    /**
+     * The screen turning off, or the app being switched away from, both make the activity no
+     * longer visible and land here — the trigger for the affirmative video teardown described in
+     * [MainViewModel.onBackgrounded]'s doc.
+     */
+    override fun onStop() {
+        viewModel.onBackgrounded()
+        super.onStop()
     }
 }
 

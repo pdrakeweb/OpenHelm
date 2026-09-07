@@ -456,7 +456,20 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    /**
+     * The Surface most recently handed to [onVideoSurfaceReady].
+     *
+     * A `TextureView` survives `onStop`/`onStart` — unlike a `SurfaceView`, its `SurfaceTexture` is
+     * tied to being attached to the window, not to visibility — so neither [onVideoSurfaceReady]
+     * nor [onVideoSurfaceDestroyed] fires again just because the app was backgrounded and came
+     * back. [onForegrounded] needs this to restart video against the surface that is still there,
+     * rather than waiting for a callback that will not come. Cleared in
+     * [onVideoSurfaceDestroyed], when the TextureView really is gone.
+     */
+    private var lastSurface: Surface? = null
+
     fun onVideoSurfaceReady(surface: Surface) {
+        lastSurface = surface
         val endpoint = currentEndpoint() ?: return
         if (mirroring) player.start(endpoint, surface, transportFor(endpoint))
     }
@@ -486,7 +499,46 @@ class MainViewModel @Inject constructor(
         host == "10.0.2.2" || host == "127.0.0.1" || host == "::1" || host == "localhost"
 
     fun onVideoSurfaceDestroyed() {
+        lastSurface = null
         player.stop()
+    }
+
+    /**
+     * True while video was torn down by [onBackgrounded] specifically, rather than by the user
+     * (Disconnect, turning mirroring off) or by the surface actually going away. Distinguishes "put
+     * it back the way it was" on [onForegrounded] from "leave it stopped".
+     */
+    private var videoPausedForBackground = false
+
+    /**
+     * The app is no longer visible: the screen turned off, or the app was switched away from.
+     *
+     * Sends an affirmative RTSP TEARDOWN for the video session rather than leaving the OS's own
+     * network suspension (Doze, or the CPU simply going to sleep mid-session) to strand it — see
+     * [VideoPlayer.stop]'s doc. Without this, the MFD's RTSP server was sometimes left holding a
+     * session nobody told it to end, and the next connect had to fight that server-side state
+     * instead of starting from a clean one.
+     *
+     * The control connection is deliberately untouched: it already survives the phone sleeping on
+     * its own, and there is no known reason on this side to do anything to it.
+     */
+    fun onBackgrounded() {
+        if (mirroring && videoState.value != VideoState.Idle) {
+            videoPausedForBackground = true
+            player.stop()
+        }
+    }
+
+    /** The app is visible again. Undoes exactly what [onBackgrounded] did, nothing more. */
+    fun onForegrounded() {
+        if (videoPausedForBackground) {
+            videoPausedForBackground = false
+            val surface = lastSurface
+            val endpoint = currentEndpoint()
+            if (surface != null && endpoint != null && mirroring) {
+                player.start(endpoint, surface, transportFor(endpoint))
+            }
+        }
     }
 
     /**
