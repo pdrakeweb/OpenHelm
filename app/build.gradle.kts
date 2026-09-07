@@ -15,8 +15,12 @@ android {
         applicationId = "dev.openhelm.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+
+        // The release workflow (.github/workflows/release.yml) passes these as -P properties so
+        // a tagged build's version matches the tag it came from. Anything else — Android Studio,
+        // a local `./gradlew assembleDebug` — falls back to the checked-in defaults below.
+        versionCode = (findProperty("openhelmVersionCode") as String?)?.toIntOrNull() ?: 1
+        versionName = (findProperty("openhelmVersionName") as String?) ?: "0.1.0"
     }
 
     // The release signing key is deliberately not in this repository. Point at it from

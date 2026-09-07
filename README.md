@@ -120,6 +120,9 @@ Latency is measured on ARM hardware. `MediaCodec` on an x86_64 emulator resolves
 decoder, and low-latency decode, codec priority, output-buffer timing and colour-format handling all
 behave differently there than on a phone's hardware decoder.
 
+Pushing a `vX.Y.Z` tag builds signed debug and release APKs and publishes them on a GitHub Release;
+see [`docs/RELEASING.md`](docs/RELEASING.md).
+
 ## Safety
 
 OpenHelm mirrors and remote-controls a display. Navigate from your instruments and keep a proper
