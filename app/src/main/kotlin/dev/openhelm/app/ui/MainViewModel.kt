@@ -151,12 +151,16 @@ class MainViewModel @Inject constructor(
     private var ambientCollectJob: Job? = null
 
     /**
-     * Whether picture-in-picture is available for the current session — mirroring a live, real
-     * (non-simulated) connection. Read by `MainActivity.onUserLeaveHint` to decide whether to
-     * enter it; the setting itself ([pipEnabled]) is one factor, not the whole answer.
+     * Whether picture-in-picture is available for the current session — mirroring, and either a
+     * real Connected session or [simulationMode]. Read by `MainActivity.onUserLeaveHint` to decide
+     * whether to enter it; the setting itself ([pipEnabled]) is one factor, not the whole answer.
+     *
+     * Simulation counts on purpose: it exists precisely so the app can be explored and judged with
+     * no display present, and a feature that only works against real hardware is not something
+     * simulation could ever have caught missing.
      */
     fun canEnterPip(): Boolean =
-        pipEnabled && mirroring && !simulationMode && connection.value is ConnectionState.Connected
+        pipEnabled && mirroring && (simulationMode || connection.value is ConnectionState.Connected)
 
     /** The user's picture-in-picture preference. See [EndpointStore.pipEnabled]'s doc. */
     var pipEnabled by mutableStateOf(true)

@@ -86,21 +86,30 @@ fun SimulatedRemoteScreen(viewModel: MainViewModel, palette: HelmPalette) {
     }
 
     if (viewModel.mirroring) {
-        Row(Modifier.fillMaxSize().padding(horizontal = HelmEdgeInset)) {
-            Box(Modifier.weight(1f).fillMaxHeight()) {
+        // Same shape as RemoteScreen's own inPip handling: SimulatedVideoPane's call site and
+        // structural position stay identical whether or not the surrounding chrome renders, so
+        // entering or leaving picture-in-picture never restarts the simulated feed either.
+        val inPip = viewModel.inPip
+        Row(Modifier.fillMaxSize().padding(horizontal = if (inPip) 0.dp else HelmEdgeInset)) {
+            Box(if (inPip) Modifier.fillMaxSize() else Modifier.weight(1f).fillMaxHeight()) {
                 SimulatedVideoPane(
                     palette = palette,
                     onAction = viewModel::noteSimAction,
                     modifier = Modifier.fillMaxSize(),
+                    inPip = inPip,
                 )
-                SimActionField(
-                    action = viewModel.simAction,
-                    repeats = viewModel.simActionRepeats,
-                    modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
-                )
+                if (!inPip) {
+                    SimActionField(
+                        action = viewModel.simAction,
+                        repeats = viewModel.simActionRepeats,
+                        modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
+                    )
+                }
             }
-            SidePanel(viewModel)
-            rail()
+            if (!inPip) {
+                SidePanel(viewModel)
+                rail()
+            }
         }
     } else {
         Row(Modifier.fillMaxSize().padding(horizontal = HelmEdgeInset)) {
@@ -157,6 +166,7 @@ private fun SimulatedVideoPane(
     palette: HelmPalette,
     onAction: (String) -> Unit,
     modifier: Modifier = Modifier,
+    inPip: Boolean = false,
 ) {
     var frame by remember { mutableIntStateOf(0) }
     val measurer = rememberTextMeasurer()
@@ -207,50 +217,52 @@ private fun SimulatedVideoPane(
                 drawSimulatedChart(measurer, frame)
             }
 
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .pointerInput(Unit) {
-                        // The real pane's gesture handling, not a copy of it — see
-                        // videoTouchGestures. Simulation is only worth having if the thing it
-                        // exercises is the thing that ships.
-                        videoTouchGestures(
-                            scaleOf = { scale },
-                            panOf = { pan },
-                            onTransform = { s, p -> scale = s; pan = p },
-                            onDown = { x, y, size -> onAction(touchLabel("Touch", x, y, size)) },
-                            onMove = { x, y, size -> onAction(touchLabel("Drag", x, y, size)) },
-                            onUp = { _, _, _ -> },
-                            onGesture = { gesture ->
-                                when (gesture) {
-                                    is VideoGesture.Touch -> {
-                                        touching = true
-                                        trail.add(gesture.position, pinch = false, nowNanos = System.nanoTime())
-                                    }
-                                    is VideoGesture.Pinch -> {
-                                        touching = true
-                                        gesture.positions.forEach {
-                                            trail.add(it, pinch = true, nowNanos = System.nanoTime())
+            if (!inPip) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            // The real pane's gesture handling, not a copy of it — see
+                            // videoTouchGestures. Simulation is only worth having if the thing it
+                            // exercises is the thing that ships.
+                            videoTouchGestures(
+                                scaleOf = { scale },
+                                panOf = { pan },
+                                onTransform = { s, p -> scale = s; pan = p },
+                                onDown = { x, y, size -> onAction(touchLabel("Touch", x, y, size)) },
+                                onMove = { x, y, size -> onAction(touchLabel("Drag", x, y, size)) },
+                                onUp = { _, _, _ -> },
+                                onGesture = { gesture ->
+                                    when (gesture) {
+                                        is VideoGesture.Touch -> {
+                                            touching = true
+                                            trail.add(gesture.position, pinch = false, nowNanos = System.nanoTime())
                                         }
-                                        onAction("Pinch zoom ×" + String.format(java.util.Locale.ROOT, "%.1f", gesture.scale))
+                                        is VideoGesture.Pinch -> {
+                                            touching = true
+                                            gesture.positions.forEach {
+                                                trail.add(it, pinch = true, nowNanos = System.nanoTime())
+                                            }
+                                            onAction("Pinch zoom ×" + String.format(java.util.Locale.ROOT, "%.1f", gesture.scale))
+                                        }
+                                        VideoGesture.End -> touching = false
                                     }
-                                    VideoGesture.End -> touching = false
-                                }
-                            },
-                            onHaptic = { moment ->
-                                when (moment) {
-                                    HapticMoment.TOUCH_DOWN -> HelmHaptics.touchDown(view)
-                                    HapticMoment.STEP -> HelmHaptics.gestureStep(view)
-                                }
-                            },
-                        )
-                    },
-            )
+                                },
+                                onHaptic = { moment ->
+                                    when (moment) {
+                                        HapticMoment.TOUCH_DOWN -> HelmHaptics.touchDown(view)
+                                        HapticMoment.STEP -> HelmHaptics.gestureStep(view)
+                                    }
+                                },
+                            )
+                        },
+                )
 
-            // Touch marks sit outside the zoom: they mark where the finger was on the glass, not
-            // where it landed on the chart.
-            Canvas(Modifier.fillMaxSize()) {
-                trail.draw(this, markClock, markColor)
+                // Touch marks sit outside the zoom: they mark where the finger was on the glass, not
+                // where it landed on the chart.
+                Canvas(Modifier.fillMaxSize()) {
+                    trail.draw(this, markClock, markColor)
+                }
             }
 
             Column(
