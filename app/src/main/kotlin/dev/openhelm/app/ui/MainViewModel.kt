@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import android.os.SystemClock
 import android.view.Surface
+import dev.openhelm.app.ambient.AmbientPaletteMonitor
 import dev.openhelm.app.config.EndpointStore
 import dev.openhelm.app.config.RememberedDisplay
 import dev.openhelm.app.discovery.MfdDiscovery
@@ -49,6 +50,7 @@ class MainViewModel @Inject constructor(
     private val discovery: MfdDiscovery,
     private val store: EndpointStore,
     private val player: VideoPlayer,
+    private val ambientPalette: AmbientPaletteMonitor,
 ) : ViewModel() {
 
     val connection: StateFlow<ConnectionState> = rrc.state
@@ -138,6 +140,15 @@ class MainViewModel @Inject constructor(
      */
     var palette by mutableStateOf<HelmPalette?>(null)
         private set
+
+    /**
+     * True when the colour mode follows ambient light / time of day rather than a fixed manual
+     * choice. See [selectPalette]'s doc for how choosing a palette by hand turns this back off.
+     */
+    var paletteAuto by mutableStateOf(false)
+        private set
+
+    private var ambientCollectJob: Job? = null
 
     /**
      * Whether picture-in-picture is available for the current session — mirroring a live, real
@@ -241,6 +252,15 @@ class MainViewModel @Inject constructor(
 
         viewModelScope.launch {
             pipEnabled = store.pipEnabled.first()
+        }
+
+        // Whichever settles first between this and MainActivity's first onStart — this is a
+        // suspending DataStore read, that is a plain field check — must be the one that actually
+        // starts the monitor if the answer is true; AmbientPaletteMonitor.start() is idempotent so
+        // both paths calling it is harmless, but neither can be skipped.
+        viewModelScope.launch {
+            paletteAuto = store.paletteAuto.first()
+            if (paletteAuto) startAdaptivePalette()
         }
 
         viewModelScope.launch {
@@ -477,10 +497,43 @@ class MainViewModel @Inject constructor(
         selectPalette(HelmPalette.entries[(from.ordinal + 1) % HelmPalette.entries.size])
     }
 
-    /** Choose a palette outright — what the named options in Settings do. */
+    /**
+     * Choose a palette outright — what the named options in Settings do, and what [cyclePalette]
+     * does under the hood.
+     *
+     * A manual choice is a pin: if automatic mode was on, this turns it back off, exactly the way
+     * the "manual override that pins the mode until unpinned" is meant to work — picking a fixed
+     * palette **is** the unpin-from-automatic action, not a separate step.
+     */
     fun selectPalette(choice: HelmPalette) {
+        if (paletteAuto) selectPaletteAuto(false)
         palette = choice
         viewModelScope.launch { store.savePalette(choice.name) }
+    }
+
+    /**
+     * Turn automatic day/dusk/night on or off. See [AmbientPaletteMonitor] for how the mode is
+     * actually chosen; this just wires its recommendation into [palette] while it is running.
+     */
+    fun selectPaletteAuto(enabled: Boolean) {
+        if (enabled == paletteAuto) return
+        paletteAuto = enabled
+        viewModelScope.launch { store.savePaletteAuto(enabled) }
+        if (enabled) startAdaptivePalette() else stopAdaptivePalette()
+    }
+
+    private fun startAdaptivePalette() {
+        ambientPalette.start()
+        if (ambientCollectJob != null) return
+        ambientCollectJob = viewModelScope.launch {
+            ambientPalette.palette.collect { palette = it }
+        }
+    }
+
+    private fun stopAdaptivePalette() {
+        ambientCollectJob?.cancel()
+        ambientCollectJob = null
+        ambientPalette.stop()
     }
 
     fun selectTransport(choice: RtpTransport) {
@@ -561,6 +614,8 @@ class MainViewModel @Inject constructor(
             videoPausedForBackground = true
             player.stop()
         }
+        // No point reading a sensor nobody is looking at the result of.
+        if (paletteAuto) stopAdaptivePalette()
     }
 
     /** The app is visible again. Undoes exactly what [onBackgrounded] did, nothing more. */
@@ -573,6 +628,7 @@ class MainViewModel @Inject constructor(
                 player.start(endpoint, surface, transportFor(endpoint))
             }
         }
+        if (paletteAuto) startAdaptivePalette()
     }
 
     /**

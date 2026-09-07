@@ -45,6 +45,7 @@ class EndpointStore @Inject constructor(@ApplicationContext private val context:
     private val transportKey = stringPreferencesKey("rtp_transport")
     private val rememberedKey = stringPreferencesKey("remembered_displays")
     private val paletteKey = stringPreferencesKey("helm_palette")
+    private val paletteAutoKey = booleanPreferencesKey("palette_auto")
     private val pipEnabledKey = booleanPreferencesKey("pip_enabled")
     private val diagnosticsKey = booleanPreferencesKey("show_diagnostics")
     private val delayModeKey = stringPreferencesKey("delay_notification")
@@ -113,6 +114,19 @@ class EndpointStore @Inject constructor(@ApplicationContext private val context:
 
     suspend fun savePalette(value: String) {
         context.dataStore.edit { prefs -> prefs[paletteKey] = value }
+    }
+
+    /**
+     * Whether the colour mode follows ambient light / time of day automatically (see
+     * `AmbientPaletteMonitor`) rather than the fixed choice in [palette]. Off by default: an
+     * upgrade must not start auto-switching a palette someone chose deliberately. Choosing a
+     * palette by hand while this is on turns it back off — see `MainViewModel.selectPalette`.
+     */
+    val paletteAuto: Flow<Boolean> =
+        context.dataStore.data.map { prefs -> prefs[paletteAutoKey] ?: false }
+
+    suspend fun savePaletteAuto(value: Boolean) {
+        context.dataStore.edit { prefs -> prefs[paletteAutoKey] = value }
     }
 
     /**

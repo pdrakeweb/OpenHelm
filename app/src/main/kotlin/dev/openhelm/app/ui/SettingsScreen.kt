@@ -126,7 +126,9 @@ fun SettingsScreen(
             item(key = "palette") {
                 PaletteSection(
                     palette = palette,
+                    auto = viewModel.paletteAuto,
                     onSelect = viewModel::selectPalette,
+                    onToggleAuto = viewModel::selectPaletteAuto,
                 )
             }
 
@@ -373,7 +375,12 @@ internal fun <T> ChoiceTrack(
  * Both write the same persisted value, so whichever you touch last is what the app comes back up in.
  */
 @Composable
-private fun PaletteSection(palette: HelmPalette, onSelect: (HelmPalette) -> Unit) {
+private fun PaletteSection(
+    palette: HelmPalette,
+    auto: Boolean,
+    onSelect: (HelmPalette) -> Unit,
+    onToggleAuto: (Boolean) -> Unit,
+) {
     Card(
         Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
@@ -392,6 +399,30 @@ private fun PaletteSection(palette: HelmPalette, onSelect: (HelmPalette) -> Unit
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Automatic",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Spacer(Modifier.size(4.dp))
+                    Text(
+                        "Follows the light sensor, or the sun's position if the phone has none or " +
+                            "it isn't reading reliably. Picking a mode below overrides this until " +
+                            "Automatic is turned back on.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.size(16.dp))
+                Switch(checked = auto, onCheckedChange = onToggleAuto)
             }
 
             ChoiceTrack(
