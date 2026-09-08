@@ -81,6 +81,15 @@ class AmbientPaletteMonitor @Inject constructor(
      * currently unreliable — cheap to run unconditionally, and it is what seeds the very first
      * classification on a device with no sensor at all.
      *
+     * A device *with* a sensor still gets a bounded wait, not an unconditional one: registering a
+     * listener does not guarantee a prompt first callback — some devices are slow to deliver the
+     * first `TYPE_LIGHT` event, and if it is late enough, whatever [palette] happened to hold
+     * before [start] was called (a stale manual choice from a previous session, [DefaultPalette] as
+     * this class's own initial value) keeps showing for however long that takes. If nothing has
+     * arrived within [COLD_START_SENSOR_TIMEOUT_MS], the cold-start rule below applies to a
+     * twilight reading instead — the real sensor reading still wins outright the moment it does
+     * arrive, exactly as if it had simply been a bit slow.
+     *
      * Safe to call repeatedly; a second call while already running does nothing.
      */
     fun start() {
@@ -91,6 +100,10 @@ class AmbientPaletteMonitor @Inject constructor(
         unreliable = false
         lightSensor?.let { sensorManager?.registerListener(listener, it, SensorManager.SENSOR_DELAY_NORMAL) }
         tickJob = scope.launch {
+            if (lightSensor != null) {
+                delay(COLD_START_SENSOR_TIMEOUT_MS)
+                if (!appliedFirstReading) onClassified(Twilight.classify(ZonedDateTime.now()))
+            }
             while (true) {
                 if (lightSensor == null || unreliable) {
                     onClassified(Twilight.classify(ZonedDateTime.now()))
@@ -157,6 +170,14 @@ class AmbientPaletteMonitor @Inject constructor(
         /** How long a candidate mode must persist before it is actually applied. */
         const val DWELL_MS = 5_000L
         const val TWILIGHT_POLL_MS = 60_000L
+
+        /**
+         * How long [start] waits for a light sensor's first reading before seeding the cold-start
+         * pick from twilight instead. `SENSOR_DELAY_NORMAL` batches at roughly a 200ms period, so
+         * this is generous margin for an ordinary device while still being well inside what the
+         * cold-start rule promises ("immediately", not "eventually").
+         */
+        const val COLD_START_SENSOR_TIMEOUT_MS = 1_500L
 
         // Round numbers, not a calibrated light meter: picked to land day/dusk/night the way a
         // person would call them from a phone's own ambient sensor, which is coarse and reads low

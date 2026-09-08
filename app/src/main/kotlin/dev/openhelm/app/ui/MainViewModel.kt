@@ -244,10 +244,32 @@ class MainViewModel @Inject constructor(
     }
 
     init {
-        // Restored on launch. Unlike simulation mode this is deliberately sticky — see
-        // EndpointStore.palette for why relaunching bright after dark is not acceptable.
+        // paletteAuto and the manual palette are resolved together, in one coroutine, because they
+        // are two sources for the same field and reading them independently raced: the manual
+        // value is a plain in-memory Flow read and settles almost immediately, while the ambient
+        // monitor's first classification needs an actual sensor round-trip — so on every cold
+        // launch with automatic on, the stale manual choice from whenever it was last set
+        // reliably won that race and showed first, for however long the sensor took to report.
+        // Launched at night in a dark room after the app had last been left in a bright manual
+        // palette from testing, this is a real launch-into-the-wrong-palette bug, not a rare or
+        // theoretical one — DataStore reads just don't lose races to hardware.
+        //
+        // The fix: when automatic is on, never set the manual value at all, at any point — go
+        // straight to the ambient monitor, whose own cold-start rule (see
+        // AmbientPaletteMonitor.start) applies its first classification immediately once it has
+        // one. [DefaultPalette] (dark) covers the brief window before that, which is a much safer
+        // placeholder than an arbitrary stale manual choice — dark blue, not white, could show
+        // for both a bright room and a dark one.
         viewModelScope.launch {
-            palette = parsePalette(store.palette.first())
+            val auto = store.paletteAuto.first()
+            paletteAuto = auto
+            if (auto) {
+                startAdaptivePalette()
+            } else {
+                // Restored on launch. Unlike simulation mode this is deliberately sticky — see
+                // EndpointStore.palette for why relaunching bright after dark is not acceptable.
+                palette = parsePalette(store.palette.first())
+            }
         }
 
         viewModelScope.launch {
@@ -256,15 +278,6 @@ class MainViewModel @Inject constructor(
 
         viewModelScope.launch {
             pipEnabled = store.pipEnabled.first()
-        }
-
-        // Whichever settles first between this and MainActivity's first onStart — this is a
-        // suspending DataStore read, that is a plain field check — must be the one that actually
-        // starts the monitor if the answer is true; AmbientPaletteMonitor.start() is idempotent so
-        // both paths calling it is harmless, but neither can be skipped.
-        viewModelScope.launch {
-            paletteAuto = store.paletteAuto.first()
-            if (paletteAuto) startAdaptivePalette()
         }
 
         viewModelScope.launch {
