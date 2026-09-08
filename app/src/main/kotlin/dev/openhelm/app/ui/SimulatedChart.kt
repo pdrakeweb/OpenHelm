@@ -46,6 +46,16 @@ import kotlin.math.sin
  * them past their tuned size in the ordinary case, which is what actually overflowed the data bar.
  * Only a picture-in-picture window, smaller than the reference, should ever shrink the text; nothing
  * should ever grow it.
+ *
+ * The data bar's own height follows the font, not the chart. Sizing it from `y(DATA_BAR_HEIGHT)` —
+ * the same uncapped scale every chart line and position uses — was the next mistake this file made:
+ * it fixed the small-window overflow but then grew the bar without a ceiling as the pane got bigger,
+ * while the text inside it stayed capped at its tuned size right alongside it. At an ordinary
+ * full-screen size (`u` well above 1) that produced a bar several times taller than the two lines of
+ * text sitting in it — correct proportion at exactly `u = 1`, wrong everywhere above it, which is
+ * most of the time this pane actually renders. [barHeight] uses the same clamped `fontScale` as the
+ * text itself, so the two stay in the same proportion at every size: capped together above `u = 1`,
+ * shrinking together below it.
  */
 internal fun DrawScope.drawSimulatedChart(measurer: TextMeasurer, frame: Int) {
     val u = size.width / VIRTUAL_W
@@ -53,9 +63,10 @@ internal fun DrawScope.drawSimulatedChart(measurer: TextMeasurer, frame: Int) {
     fun y(v: Float) = v * (size.height / VIRTUAL_H)
 
     val t = frame / 15f // seconds
+    val barHeight = DATA_BAR_HEIGHT * u.coerceAtMost(1f)
 
-    drawChartBase(u, ::x, ::y, measurer, t)
-    drawDataBar(::x, ::y, u, measurer, t)
+    drawChartBase(u, ::x, ::y, barHeight, measurer, t)
+    drawDataBar(::x, u, barHeight, measurer, t)
     drawCursor(::x, ::y, u)
 }
 
@@ -87,6 +98,7 @@ private fun DrawScope.drawChartBase(
     u: Float,
     x: (Float) -> Float,
     y: (Float) -> Float,
+    barHeight: Float,
     measurer: TextMeasurer,
     t: Float,
 ) {
@@ -132,15 +144,17 @@ private fun DrawScope.drawChartBase(
         )
     }
 
-    // Graticule, starting just below the data bar.
+    // Graticule, starting just below the data bar. barHeight is already a real pixel offset (see
+    // drawSimulatedChart's doc on why it isn't run through y() like everything else here), so the
+    // horizontal lines are spaced out in real pixels too rather than mixing coordinate spaces.
     val gStroke = Stroke(width = 1f * u)
     for (gx in 1..4) {
         val px = VIRTUAL_W * gx / 5f
-        drawLine(GraticuleInk, Offset(x(px), y(DATA_BAR_HEIGHT)), Offset(x(px), y(VIRTUAL_H)), gStroke.width)
+        drawLine(GraticuleInk, Offset(x(px), barHeight), Offset(x(px), y(VIRTUAL_H)), gStroke.width)
     }
     for (gy in 1..3) {
-        val py = DATA_BAR_HEIGHT + (VIRTUAL_H - DATA_BAR_HEIGHT) * gy / 4f
-        drawLine(GraticuleInk, Offset(0f, y(py)), Offset(x(VIRTUAL_W), y(py)), gStroke.width)
+        val py = barHeight + (y(VIRTUAL_H) - barHeight) * gy / 4f
+        drawLine(GraticuleInk, Offset(0f, py), Offset(x(VIRTUAL_W), py), gStroke.width)
     }
 
     // Spot soundings: fixed positions, so the chart does not shimmer between frames.
@@ -210,8 +224,10 @@ private fun DrawScope.drawChartBase(
     }
 
     // Scale bar and orientation. Kept clear of the data bar, which is painted over the chart
-     // afterwards and swallowed both labels when they sat any higher.
-    val barY = y(DATA_BAR_HEIGHT + 22f)
+     // afterwards and swallowed both labels when they sat any higher. The clearance itself scales
+     // with the chart normally (u, uncapped) — it is breathing room, not text — added to barHeight,
+     // which is already a real pixel offset.
+    val barY = barHeight + 22f * u
     val barLeft = x(24f)
     val barRight = x(120f)
     drawLine(ChartInk, Offset(barLeft, barY), Offset(barRight, barY), strokeWidth = 1.4f * u)
@@ -228,18 +244,18 @@ private fun DrawScope.drawChartBase(
 
 private fun DrawScope.drawDataBar(
     x: (Float) -> Float,
-    y: (Float) -> Float,
     u: Float,
+    barHeight: Float,
     measurer: TextMeasurer,
     t: Float,
 ) {
-    val h = y(DATA_BAR_HEIGHT)
-    drawRect(Color(0xFF1B2A38), size = Size(size.width, h))
-    drawLine(Color(0xFF3E5265), Offset(0f, h), Offset(size.width, h), strokeWidth = 1f * u)
+    drawRect(Color(0xFF1B2A38), size = Size(size.width, barHeight))
+    drawLine(Color(0xFF3E5265), Offset(0f, barHeight), Offset(size.width, barHeight), strokeWidth = 1f * u)
 
-    // Never scaled up past its tuned size — see drawChartBase's fontScale doc. This bar is
-    // fixed-height (h, above), so oversized text here does not just look wrong, it draws outside
-    // the bar entirely.
+    // Never scaled up past its tuned size — see drawSimulatedChart's fontScale/barHeight doc. The
+    // bar itself is capped at the same factor (barHeight), so oversized text here does not just
+    // look wrong, it draws outside the bar entirely — and an oversized *bar* leaves the text
+    // looking lost inside far more space than it needs.
     val fontScale = u.coerceAtMost(1f)
     val labelStyle = TextStyle(color = Color(0xFF90A4AE), fontSize = (8f * fontScale).sp, fontWeight = FontWeight.Medium)
     val valueStyle = TextStyle(
@@ -270,15 +286,17 @@ private fun DrawScope.drawDataBar(
         ),
     )
 
+    // The label/value offsets are real pixels too (fontScale, not y()) — they are positions
+    // *within* text-driven content, so they follow the text's own scale, not the chart's.
     var cx = x(14f)
     fields.forEach { (label, value) ->
-        drawText(measurer.measure(label, labelStyle), topLeft = Offset(cx, y(DATA_BAR_LABEL_Y)))
+        drawText(measurer.measure(label, labelStyle), topLeft = Offset(cx, DATA_BAR_LABEL_Y * fontScale))
         val v = measurer.measure(value, valueStyle)
-        drawText(v, topLeft = Offset(cx, y(DATA_BAR_VALUE_Y)))
+        drawText(v, topLeft = Offset(cx, DATA_BAR_VALUE_Y * fontScale))
         cx += maxOf(v.size.width.toFloat(), x(72f)) + x(24f)
     }
 
-    drawMenuButton(x, y, u, measurer)
+    drawMenuButton(x, u, barHeight, measurer)
 }
 
 /**
@@ -291,17 +309,17 @@ private fun DrawScope.drawDataBar(
  */
 private fun DrawScope.drawMenuButton(
     x: (Float) -> Float,
-    y: (Float) -> Float,
     u: Float,
+    barHeight: Float,
     measurer: TextMeasurer,
 ) {
     val right = x(786f)
     val left = x(694f)
-    // Centred in the data bar rather than a fixed offset from its top: the button's own size is
-    // independent of the bar's height (it is icon-sized, not text-driven), so it is the bar that
-    // moved around it, not the other way round.
-    val top = y(DATA_BAR_HEIGHT / 2f - 15f)
-    val bottom = y(DATA_BAR_HEIGHT / 2f + 15f)
+    // Centred in the data bar rather than a fixed offset from its top: the button's own size
+    // scales with the chart normally (u, uncapped, like the rest of this icon), independent of the
+    // bar's own height — it is the bar that moved around it, not the other way round.
+    val top = barHeight / 2f - 15f * u
+    val bottom = barHeight / 2f + 15f * u
 
     drawRoundRect(
         color = Color(0xFF2C3E50),
@@ -362,29 +380,27 @@ private const val VIRTUAL_W = 800f
 private const val VIRTUAL_H = 480f
 
 /**
- * The data bar, tall enough to actually hold its own two-line stack (8sp label, 17sp value) at the
- * 1:1 reference scale (`u = 1`) on a real device, not just on paper.
+ * The data bar's height in real pixels *at `u = 1` and below* — see `drawSimulatedChart`'s doc for
+ * why this is multiplied by the same clamped `fontScale` the bar's own text uses, rather than run
+ * through the chart's ordinary (uncapped) `y()`, and why both bugs that this constant has already
+ * been through (overflowing a too-short bar, then a bar that outgrew its own text) were really one
+ * bug: the bar's size was never tied to the one thing that actually determines how tall it needs to
+ * be, which is the text sitting in it.
  *
- * The original 44 was never big enough for that: a 17sp value line's real rendered height at
- * typical phone density is on the order of 55-70 real pixels including line-height, and this pane
- * almost never actually renders at `u = 1` — real panes are usually wider than the 800px reference,
- * so `u` is usually well above 1, and the bar (whose height and every other position scale up
- * without a ceiling) grew comfortably ahead of the font (which does, by design, have one — see
- * `drawSimulatedChart`'s doc). That growing headroom is what hid the mismatch in the only condition
- * this scene had ever actually been looked at in. A window at or below the 800px reference — a
- * picture-in-picture window, chiefly — has no such headroom, and the two-line stack overflowed the
- * bar it was drawn on top of. 130 is sized with real line-height math, not eyeballed: see
- * [DATA_BAR_LABEL_Y] and [DATA_BAR_VALUE_Y].
+ * Sized for a two-line stack (8sp label, 17sp value) at typical phone density: a 17sp line's real
+ * rendered height including line-height is on the order of 55-70 real pixels, not the 44 this
+ * constant started at.
  */
 private const val DATA_BAR_HEIGHT = 130f
 
-/** Label line (8sp) top, with a small margin above it. */
+/** Label line (8sp) top, with a small margin above it — multiplied by `fontScale`, like the bar. */
 private const val DATA_BAR_LABEL_Y = 8f
 
 /**
- * Value line (17sp) top. Below the label with enough of a gap that the two lines cannot touch even
- * at a high-density device's rendered line-height, and enough room below it, within
- * [DATA_BAR_HEIGHT], for that same line to fully render without touching the bar's own bottom edge.
+ * Value line (17sp) top — multiplied by `fontScale`, like the bar. Below the label with enough of a
+ * gap that the two lines cannot touch even at a high-density device's rendered line-height, and
+ * enough room below it, within [DATA_BAR_HEIGHT], for that same line to fully render without
+ * touching the bar's own bottom edge.
  */
 private const val DATA_BAR_VALUE_Y = 46f
 
