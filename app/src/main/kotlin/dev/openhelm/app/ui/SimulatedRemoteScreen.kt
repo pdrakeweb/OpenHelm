@@ -33,12 +33,14 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.sp
@@ -99,11 +101,27 @@ fun SimulatedRemoteScreen(viewModel: MainViewModel, palette: HelmPalette) {
                     inPip = inPip,
                 )
                 if (!inPip) {
-                    SimActionField(
-                        action = viewModel.simAction,
-                        repeats = viewModel.simActionRepeats,
-                        modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
-                    )
+                    // Sized to land exactly on the chart's own data bar underneath, not a fixed dp
+                    // guess: the bar is drawn at DATA_BAR_HEIGHT *raw pixels*, capped at u = 1 (see
+                    // SimulatedChart's doc), and raw pixels are a fixed fraction of a dp only at one
+                    // density. A flat 44dp box matched that fraction only by luck at the density it
+                    // was tuned on — short of the real bar at low density (leaving a sliver of the
+                    // chart's own SOG readout showing past the box's bottom edge) and taller than it
+                    // at high density (overlapping the value line below instead of just the label).
+                    // Reproducing the same u-and-clamp math in dp keeps the two aligned at every size.
+                    BoxWithConstraints(Modifier.fillMaxSize()) {
+                        val density = LocalDensity.current
+                        val widthPx = with(density) { maxWidth.toPx() }
+                        val u = widthPx / VIRTUAL_W
+                        val barHeightPx = DATA_BAR_HEIGHT * u.coerceAtMost(1f)
+                        val barHeightDp = with(density) { barHeightPx.toDp() }
+                        SimActionField(
+                            action = viewModel.simAction,
+                            repeats = viewModel.simActionRepeats,
+                            height = barHeightDp,
+                            modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
+                        )
+                    }
                 }
             }
             if (!inPip) {
@@ -322,10 +340,18 @@ private const val FRAME_INTERVAL_NANOS = 1_000_000_000L / 15L
  * press and it is the repetition that is interesting, not a list of identical lines.
  */
 @Composable
-private fun SimActionField(action: String?, repeats: Int, modifier: Modifier = Modifier) {
+private fun SimActionField(
+    action: String?,
+    repeats: Int,
+    modifier: Modifier = Modifier,
+    // Remote-only mode has no chart underneath to align with, so it keeps this as a plain
+    // finger-sized field. Mirror mode passes the chart's own measured data-bar height instead —
+    // see that call site for why a fixed dp here drifted out of alignment across densities.
+    height: Dp = MinHelmTarget - 12.dp,
+) {
     Row(
         modifier
-            .height(MinHelmTarget - 12.dp)
+            .height(height)
             // Opaque, because it now sits over the picture rather than in a bar beside it — and
             // the picture's own data bar occupies exactly this corner. A bordered box with the
             // chart showing through it put two lines of small text on top of each other.

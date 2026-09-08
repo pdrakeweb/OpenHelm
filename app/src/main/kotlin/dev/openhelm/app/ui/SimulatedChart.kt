@@ -313,13 +313,35 @@ private fun DrawScope.drawMenuButton(
     barHeight: Float,
     measurer: TextMeasurer,
 ) {
-    val right = x(786f)
     val left = x(694f)
     // Centred in the data bar rather than a fixed offset from its top: the button's own size
     // scales with the chart normally (u, uncapped, like the rest of this icon), independent of the
     // bar's own height — it is the bar that moved around it, not the other way round.
     val top = barHeight / 2f - 15f * u
     val bottom = barHeight / 2f + 15f * u
+
+    // Three bars, then the word — measured before the box is drawn, not assumed to fit a fixed
+    // 786f right edge. That fixed edge left only ~14 virtual px of margin to the chart's own
+    // right boundary, invisible at every full-screen size (the pane is always far wider than the
+    // 800px virtual reference there) and shrinking harmlessly together with the label in a small
+    // picture-in-picture window (u < 1, so both shrink at the same rate) — but a PiP window whose
+    // width happens to land near the 800px reference itself (u ≈ 1, which large-phone/high-density
+    // PiP windows do) hits the one case never exercised by either: label and box at their tuned,
+    // unshrunk size, where the label was already wider than the box budgeted for it. The overflow
+    // then had nowhere to go but past the chart's own right edge — clipped by the window itself.
+    val barX = left + x(11f)
+    val barW = x(15f)
+    val labelStyle = TextStyle(color = Color(0xFFE3EAF0), fontSize = (12f * u.coerceAtMost(1f)).sp, fontWeight = FontWeight.Medium)
+    val label = measurer.measure("Menu", labelStyle)
+    // Never past the canvas itself: text drawn past this point is clipped by the window, not by
+    // anything of ours, so it is the one bound that cannot be allowed to lose. The label's natural
+    // position (right after the icon) wins whenever there is room; only when the canvas is too
+    // narrow for both does it give way and slide left, closer to the icon than it would like.
+    val safeRight = size.width - x(8f)
+    val naturalLabelLeft = barX + barW + x(9f)
+    val labelLeft = minOf(naturalLabelLeft, safeRight - label.size.width)
+    val contentRight = labelLeft + label.size.width + x(11f)
+    val right = maxOf(x(786f), contentRight).coerceAtMost(safeRight)
 
     drawRoundRect(
         color = Color(0xFF2C3E50),
@@ -335,9 +357,6 @@ private fun DrawScope.drawMenuButton(
         style = Stroke(width = 1f * u),
     )
 
-    // Three bars, then the word.
-    val barX = left + x(11f)
-    val barW = x(15f)
     repeat(3) { i ->
         val by = top + (bottom - top) / 2f + (i - 1) * 6f * u
         drawLine(
@@ -347,13 +366,9 @@ private fun DrawScope.drawMenuButton(
             strokeWidth = 2f * u,
         )
     }
-    val label = measurer.measure(
-        "Menu",
-        TextStyle(color = Color(0xFFE3EAF0), fontSize = (12f * u.coerceAtMost(1f)).sp, fontWeight = FontWeight.Medium),
-    )
     drawText(
         label,
-        topLeft = Offset(barX + barW + x(9f), (top + bottom) / 2f - label.size.height / 2f),
+        topLeft = Offset(labelLeft, (top + bottom) / 2f - label.size.height / 2f),
     )
 }
 
@@ -376,7 +391,11 @@ private fun DrawScope.drawCursor(x: (Float) -> Float, y: (Float) -> Float, u: Fl
 /** 14:20, so the clock starts somewhere plausible rather than at midnight. */
 private const val CLOCK_START_MIN = 14f * 60f + 20f
 
-private const val VIRTUAL_W = 800f
+// internal, not private: SimulatedRemoteScreen's SimActionField overlay needs to reproduce this
+// exact scale factor and bar height in Compose's dp space, to stay aligned with what this file
+// draws in raw pixels underneath it — see the doc on that overlay for why a second, independently
+// hand-tuned dp size drifted from this one at every density that wasn't the one it was eyeballed at.
+internal const val VIRTUAL_W = 800f
 private const val VIRTUAL_H = 480f
 
 /**
@@ -391,7 +410,7 @@ private const val VIRTUAL_H = 480f
  * rendered height including line-height is on the order of 55-70 real pixels, not the 44 this
  * constant started at.
  */
-private const val DATA_BAR_HEIGHT = 130f
+internal const val DATA_BAR_HEIGHT = 130f
 
 /** Label line (8sp) top, with a small margin above it — multiplied by `fontScale`, like the bar. */
 private const val DATA_BAR_LABEL_Y = 8f
