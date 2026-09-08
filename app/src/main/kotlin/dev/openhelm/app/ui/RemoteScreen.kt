@@ -94,13 +94,16 @@ fun RemoteScreen(viewModel: MainViewModel, state: ConnectionState, palette: Helm
         Row(Modifier.fillMaxSize().padding(horizontal = if (inPip) 0.dp else HelmEdgeInset)) {
             Box(if (inPip) Modifier.fillMaxSize() else Modifier.weight(1f).fillMaxHeight()) {
                 VideoPane(viewModel, palette, Modifier.fillMaxSize(), inPip = inPip)
-                if (!inPip) {
-                    ConnectionBanner(
-                        viewModel = viewModel,
-                        state = state,
-                        modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
-                    )
-                }
+                // Kept, shrunk, in picture-in-picture: "Reconnecting" or "Connecting to…" is exactly
+                // the kind of thing worth a glance at from across the room, which is the whole
+                // premise of picture-in-picture — the video's own state overlays stay for the same
+                // reason (see VideoPane).
+                ConnectionBanner(
+                    viewModel = viewModel,
+                    state = state,
+                    compact = inPip,
+                    modifier = Modifier.align(Alignment.TopStart).padding(if (inPip) 3.dp else 8.dp),
+                )
             }
             if (!inPip) {
                 DimmedWhenDisabled(controlsDisabled, Modifier.fillMaxHeight()) {
@@ -261,6 +264,7 @@ private fun ConnectionBanner(
     viewModel: MainViewModel,
     state: ConnectionState,
     modifier: Modifier = Modifier,
+    compact: Boolean = false,
 ) {
     val (text, color) = connectionStatus(viewModel, state)
     if (text.isEmpty()) return
@@ -271,10 +275,10 @@ private fun ConnectionBanner(
                 color = Color(0xB3000000),
                 shape = MaterialTheme.shapes.small,
             )
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        style = MaterialTheme.typography.bodyMedium,
+            .padding(horizontal = if (compact) 5.dp else 10.dp, vertical = if (compact) 3.dp else 6.dp),
+        style = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.bodyMedium,
         color = color,
-        maxLines = 2,
+        maxLines = if (compact) 1 else 2,
     )
 }
 

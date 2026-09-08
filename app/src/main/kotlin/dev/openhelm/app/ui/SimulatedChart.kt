@@ -37,10 +37,15 @@ import kotlin.math.sin
  * under the night scrim. Colour bars have none of those properties.
  *
  * Drawn in a virtual 800×480 space — the display's own resolution — and scaled to whatever the pane
- * gives it, so the proportions match what a real session shows. Text is scaled by the same factor as
- * every line and shape here (`u`) rather than left at a fixed size — a real video frame's own text
- * shrinks with it when the pane does, and a picture-in-picture window is a real pane that can be a
- * small fraction of the full remote screen's size; fixed-size text there overflowed the whole window.
+ * gives it, so the proportions match what a real session shows.
+ *
+ * Text scales down, but never up: every font size here is `size * fontScale`, where `fontScale` is
+ * `u` (the same width ratio every line and shape scales by) *clamped to 1*. The pane this scene
+ * normally fills is usually wider than the 800px virtual reference, so `u` itself is usually above
+ * 1 — multiplying font sizes by the unclamped `u`, as an earlier version of this file did, inflated
+ * them past their tuned size in the ordinary case, which is what actually overflowed the data bar.
+ * Only a picture-in-picture window, smaller than the reference, should ever shrink the text; nothing
+ * should ever grow it.
  */
 internal fun DrawScope.drawSimulatedChart(measurer: TextMeasurer, frame: Int) {
     val u = size.width / VIRTUAL_W
@@ -85,6 +90,13 @@ private fun DrawScope.drawChartBase(
     measurer: TextMeasurer,
     t: Float,
 ) {
+    // Unlike stroke widths and positions, text is never scaled *up* past its original size — those
+    // fixed sp values were already tuned to look right at the sizes this pane normally renders at,
+    // which are usually wider than the 800px virtual reference (u > 1). Multiplying by u there, as
+    // an earlier version of this fix did, inflated the data bar's text past the bar itself. Only
+    // shrinking for u < 1 — a picture-in-picture window, smaller than the reference — is correct.
+    val fontScale = u.coerceAtMost(1f)
+
     drawRect(DeepWater)
 
     fun band(offset: Float): Path = Path().apply {
@@ -132,7 +144,7 @@ private fun DrawScope.drawChartBase(
     }
 
     // Spot soundings: fixed positions, so the chart does not shimmer between frames.
-    val soundingStyle = TextStyle(color = ChartInk, fontSize = (8f * u).sp, fontFamily = FontFamily.SansSerif)
+    val soundingStyle = TextStyle(color = ChartInk, fontSize = (8f * fontScale).sp, fontFamily = FontFamily.SansSerif)
     SOUNDINGS.filter { (sx, sy, _) -> inWater(sx, sy) }.forEach { (sx, sy, depth) ->
         val line = measurer.measure("$depth", soundingStyle)
         drawText(line, topLeft = Offset(x(sx), y(sy)))
@@ -189,7 +201,7 @@ private fun DrawScope.drawChartBase(
     // Place names, in this project's own invented geography.
     val nameStyle = TextStyle(
         color = ChartInk,
-        fontSize = (9f * u).sp,
+        fontSize = (9f * fontScale).sp,
         fontWeight = FontWeight.Medium,
         fontFamily = FontFamily.SansSerif,
     )
@@ -205,7 +217,7 @@ private fun DrawScope.drawChartBase(
     drawLine(ChartInk, Offset(barLeft, barY), Offset(barRight, barY), strokeWidth = 1.4f * u)
     drawLine(ChartInk, Offset(barLeft, barY - 4f * u), Offset(barLeft, barY + 4f * u), strokeWidth = 1.4f * u)
     drawLine(ChartInk, Offset(barRight, barY - 4f * u), Offset(barRight, barY + 4f * u), strokeWidth = 1.4f * u)
-    val scaleStyle = TextStyle(color = ChartInk, fontSize = (9f * u).sp, fontWeight = FontWeight.Medium)
+    val scaleStyle = TextStyle(color = ChartInk, fontSize = (9f * fontScale).sp, fontWeight = FontWeight.Medium)
     val scaleLine = measurer.measure("2 nm", scaleStyle)
     drawText(scaleLine, topLeft = Offset(barRight + x(10f), barY - scaleLine.size.height / 2f))
     val northLine = measurer.measure("North-Up", scaleStyle)
@@ -225,10 +237,14 @@ private fun DrawScope.drawDataBar(
     drawRect(Color(0xFF1B2A38), size = Size(size.width, h))
     drawLine(Color(0xFF3E5265), Offset(0f, h), Offset(size.width, h), strokeWidth = 1f * u)
 
-    val labelStyle = TextStyle(color = Color(0xFF90A4AE), fontSize = (8f * u).sp, fontWeight = FontWeight.Medium)
+    // Never scaled up past its tuned size — see drawChartBase's fontScale doc. This bar is
+    // fixed-height (h, above), so oversized text here does not just look wrong, it draws outside
+    // the bar entirely.
+    val fontScale = u.coerceAtMost(1f)
+    val labelStyle = TextStyle(color = Color(0xFF90A4AE), fontSize = (8f * fontScale).sp, fontWeight = FontWeight.Medium)
     val valueStyle = TextStyle(
         color = Color.White,
-        fontSize = (17f * u).sp,
+        fontSize = (17f * fontScale).sp,
         fontWeight = FontWeight.SemiBold,
         fontFamily = FontFamily.SansSerif,
     )
@@ -312,7 +328,7 @@ private fun DrawScope.drawMenuButton(
     }
     val label = measurer.measure(
         "Menu",
-        TextStyle(color = Color(0xFFE3EAF0), fontSize = (12f * u).sp, fontWeight = FontWeight.Medium),
+        TextStyle(color = Color(0xFFE3EAF0), fontSize = (12f * u.coerceAtMost(1f)).sp, fontWeight = FontWeight.Medium),
     )
     drawText(
         label,

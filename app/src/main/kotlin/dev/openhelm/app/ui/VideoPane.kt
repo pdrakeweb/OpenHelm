@@ -252,34 +252,47 @@ fun VideoPane(
         // Bottom-left, and properly opaque. Along the top it sat over the data bar the display
         // draws across its own top edge — two rows of small text on top of each other, neither
         // readable — and at a third opacity the chart showed straight through the digits.
-        if (!inPip && viewModel.showDiagnostics) {
+        //
+        // Kept in picture-in-picture rather than hidden, at a small fraction of its normal size:
+        // it is the user's own setting, turned on because something is worth watching, and a
+        // picture-in-picture window is exactly where someone keeps an eye on something else while
+        // doing something else. Only the number most worth a glance from across the room survives
+        // at that size — the full line, and the last-touch detail, need the space of a full screen.
+        if (viewModel.showDiagnostics) {
             Text(
-                text = buildString {
-                    append(stats.fps).append(" fps · q").append(stats.queueDepth)
-                    append(" · dec ").append(stats.decodeMs).append(" ms")
-                    append(" · drop ").append(stats.dropped)
-                    append(" · gap ").append(stats.discontinuities)
-                    // Locale.ROOT: a comma-decimal locale would render "×1,5".
-                    if (scale > 1f) append(" · ×").append(String.format(Locale.ROOT, "%.1f", scale))
-                    if (stats.transport == RtpTransport.TCP_INTERLEAVED) append(" · TCP (sim)")
-                    // What the last touch actually put on the wire, as a position on the picture.
-                    //
-                    // Added for a field report of taps landing in the wrong place. The app's own
-                    // arithmetic was measured and is exact — a tap at 75.0% of the pane sends
-                    // 75.0%, edge to edge, on both axes — which means the interesting question is
-                    // no longer "what did the app compute" but "does what it sent agree with where
-                    // the finger was". This line answers that on the boat, without a laptop on the
-                    // network: tap a landmark, read the percentage, compare it with your finger.
-                    viewModel.lastTouchSent?.let { append("\n").append(it) }
+                text = if (inPip) {
+                    "${stats.fps} fps"
+                } else {
+                    buildString {
+                        append(stats.fps).append(" fps · q").append(stats.queueDepth)
+                        append(" · dec ").append(stats.decodeMs).append(" ms")
+                        append(" · drop ").append(stats.dropped)
+                        append(" · gap ").append(stats.discontinuities)
+                        // Locale.ROOT: a comma-decimal locale would render "×1,5".
+                        if (scale > 1f) append(" · ×").append(String.format(Locale.ROOT, "%.1f", scale))
+                        if (stats.transport == RtpTransport.TCP_INTERLEAVED) append(" · TCP (sim)")
+                        // What the last touch actually put on the wire, as a position on the picture.
+                        //
+                        // Added for a field report of taps landing in the wrong place. The app's own
+                        // arithmetic was measured and is exact — a tap at 75.0% of the pane sends
+                        // 75.0%, edge to edge, on both axes — which means the interesting question is
+                        // no longer "what did the app compute" but "does what it sent agree with where
+                        // the finger was". This line answers that on the boat, without a laptop on the
+                        // network: tap a landmark, read the percentage, compare it with your finger.
+                        viewModel.lastTouchSent?.let { append("\n").append(it) }
+                    }
                 },
                 color = Color(0xFFE8EEF4),
-                fontSize = 11.sp,
+                fontSize = if (inPip) 7.sp else 11.sp,
                 fontFamily = FontFamily.Monospace,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(6.dp)
+                    .padding(if (inPip) 2.dp else 6.dp)
                     .background(Color(0xD9000000), MaterialTheme.shapes.extraSmall)
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                    .padding(
+                        horizontal = if (inPip) 3.dp else 6.dp,
+                        vertical = if (inPip) 1.dp else 4.dp,
+                    ),
             )
         }
 
@@ -287,9 +300,13 @@ fun VideoPane(
         // that is seconds old is a different thing to navigate by than a live one, and nothing
         // else on screen distinguishes them. When it appears is the user's call — by default it
         // stays out of the way until the picture is actually late (see DelayNotification).
+        //
+        // Kept, shrunk, in picture-in-picture — this is exactly the kind of thing worth a glance at
+        // from across the room while doing something else, which is the whole premise of picture-
+        // in-picture in the first place.
         val thresholdMs = viewModel.delayThresholdSeconds * 1_000
         val late = stats.latencyMs >= thresholdMs
-        val showDelay = !inPip && videoState == VideoState.Streaming && stats.latencyMs > 0 &&
+        val showDelay = videoState == VideoState.Streaming && stats.latencyMs > 0 &&
             when (viewModel.delayNotification) {
                 DelayNotification.ALWAYS -> true
                 DelayNotification.WHEN_DELAYED -> late
@@ -299,7 +316,8 @@ fun VideoPane(
             DelayReadout(
                 millis = stats.latencyMs,
                 late = late,
-                modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp),
+                compact = inPip,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(if (inPip) 2.dp else 6.dp),
             )
         }
     }
@@ -322,7 +340,7 @@ fun VideoPane(
  * chart stops being something to steer by and starts being something to check against.
  */
 @Composable
-private fun DelayReadout(millis: Int, late: Boolean, modifier: Modifier = Modifier) {
+private fun DelayReadout(millis: Int, late: Boolean, modifier: Modifier = Modifier, compact: Boolean = false) {
     val warn = late
     // Milliseconds below a second. A pipeline running well is tens of milliseconds behind, and
     // rendering that as "0.0 s" throws away the entire measurement precisely when it is the good
@@ -334,12 +352,14 @@ private fun DelayReadout(millis: Int, late: Boolean, modifier: Modifier = Modifi
         String.format(Locale.ROOT, "%.1f", millis / 1000f) + " s"
     }
     Text(
-        text = "delayed by ≥ $figure",
+        // "delayed by ≥ 2.1 s" full-size; just the figure in a picture-in-picture window, where the
+        // sentence would not fit and the number is what matters at a glance.
+        text = if (compact) figure else "delayed by ≥ $figure",
         modifier = modifier
             .background(Color(0xD9000000), MaterialTheme.shapes.extraSmall)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(horizontal = if (compact) 4.dp else 8.dp, vertical = if (compact) 2.dp else 4.dp),
         color = if (warn) MaterialTheme.colorScheme.error else Color(0xFFE8EEF4),
-        fontSize = 12.sp,
+        fontSize = if (compact) 8.sp else 12.sp,
         fontFamily = FontFamily.Monospace,
         fontWeight = if (warn) FontWeight.Bold else FontWeight.Normal,
     )
