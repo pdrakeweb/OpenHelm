@@ -265,24 +265,31 @@ private fun SimulatedVideoPane(
                 }
             }
 
+            // Kept in picture-in-picture — unlike the touch handling and marks above, this is a
+            // safety label, not chrome, for the same reason the real pane keeps its stale-video
+            // scrim there. Shrunk rather than fixed at full size: at full size it was sized for a
+            // full remote screen and overflowed a picture-in-picture window outright, and the frame
+            // counter is dropped as clutter that fixed size never had room to spare for anyway.
             Column(
                 Modifier
                     .align(Alignment.BottomStart)
                     .background(Color(0xCC000000))
-                    .padding(horizontal = 8.dp, vertical = 5.dp),
+                    .padding(horizontal = if (inPip) 4.dp else 8.dp, vertical = if (inPip) 2.dp else 5.dp),
             ) {
                 Text(
                     "SIMULATED",
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
+                    fontSize = if (inPip) 8.sp else 13.sp,
                 )
-                Text(
-                    "not a real display · frame $frame",
-                    color = Color(0xCCE8EEF4),
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 10.sp,
-                )
+                if (!inPip) {
+                    Text(
+                        "not a real display · frame $frame",
+                        color = Color(0xCCE8EEF4),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.sp,
+                    )
+                }
             }
         }
 

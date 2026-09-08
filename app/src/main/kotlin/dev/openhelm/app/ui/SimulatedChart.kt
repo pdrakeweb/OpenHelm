@@ -37,7 +37,10 @@ import kotlin.math.sin
  * under the night scrim. Colour bars have none of those properties.
  *
  * Drawn in a virtual 800×480 space — the display's own resolution — and scaled to whatever the pane
- * gives it, so the proportions match what a real session shows.
+ * gives it, so the proportions match what a real session shows. Text is scaled by the same factor as
+ * every line and shape here (`u`) rather than left at a fixed size — a real video frame's own text
+ * shrinks with it when the pane does, and a picture-in-picture window is a real pane that can be a
+ * small fraction of the full remote screen's size; fixed-size text there overflowed the whole window.
  */
 internal fun DrawScope.drawSimulatedChart(measurer: TextMeasurer, frame: Int) {
     val u = size.width / VIRTUAL_W
@@ -129,7 +132,7 @@ private fun DrawScope.drawChartBase(
     }
 
     // Spot soundings: fixed positions, so the chart does not shimmer between frames.
-    val soundingStyle = TextStyle(color = ChartInk, fontSize = 8.sp, fontFamily = FontFamily.SansSerif)
+    val soundingStyle = TextStyle(color = ChartInk, fontSize = (8f * u).sp, fontFamily = FontFamily.SansSerif)
     SOUNDINGS.filter { (sx, sy, _) -> inWater(sx, sy) }.forEach { (sx, sy, depth) ->
         val line = measurer.measure("$depth", soundingStyle)
         drawText(line, topLeft = Offset(x(sx), y(sy)))
@@ -186,7 +189,7 @@ private fun DrawScope.drawChartBase(
     // Place names, in this project's own invented geography.
     val nameStyle = TextStyle(
         color = ChartInk,
-        fontSize = 9.sp,
+        fontSize = (9f * u).sp,
         fontWeight = FontWeight.Medium,
         fontFamily = FontFamily.SansSerif,
     )
@@ -202,7 +205,7 @@ private fun DrawScope.drawChartBase(
     drawLine(ChartInk, Offset(barLeft, barY), Offset(barRight, barY), strokeWidth = 1.4f * u)
     drawLine(ChartInk, Offset(barLeft, barY - 4f * u), Offset(barLeft, barY + 4f * u), strokeWidth = 1.4f * u)
     drawLine(ChartInk, Offset(barRight, barY - 4f * u), Offset(barRight, barY + 4f * u), strokeWidth = 1.4f * u)
-    val scaleStyle = TextStyle(color = ChartInk, fontSize = 9.sp, fontWeight = FontWeight.Medium)
+    val scaleStyle = TextStyle(color = ChartInk, fontSize = (9f * u).sp, fontWeight = FontWeight.Medium)
     val scaleLine = measurer.measure("2 nm", scaleStyle)
     drawText(scaleLine, topLeft = Offset(barRight + x(10f), barY - scaleLine.size.height / 2f))
     val northLine = measurer.measure("North-Up", scaleStyle)
@@ -222,10 +225,10 @@ private fun DrawScope.drawDataBar(
     drawRect(Color(0xFF1B2A38), size = Size(size.width, h))
     drawLine(Color(0xFF3E5265), Offset(0f, h), Offset(size.width, h), strokeWidth = 1f * u)
 
-    val labelStyle = TextStyle(color = Color(0xFF90A4AE), fontSize = 8.sp, fontWeight = FontWeight.Medium)
+    val labelStyle = TextStyle(color = Color(0xFF90A4AE), fontSize = (8f * u).sp, fontWeight = FontWeight.Medium)
     val valueStyle = TextStyle(
         color = Color.White,
-        fontSize = 17.sp,
+        fontSize = (17f * u).sp,
         fontWeight = FontWeight.SemiBold,
         fontFamily = FontFamily.SansSerif,
     )
@@ -309,7 +312,7 @@ private fun DrawScope.drawMenuButton(
     }
     val label = measurer.measure(
         "Menu",
-        TextStyle(color = Color(0xFFE3EAF0), fontSize = 12.sp, fontWeight = FontWeight.Medium),
+        TextStyle(color = Color(0xFFE3EAF0), fontSize = (12f * u).sp, fontWeight = FontWeight.Medium),
     )
     drawText(
         label,

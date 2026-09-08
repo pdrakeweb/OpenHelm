@@ -218,10 +218,10 @@ fun VideoPane(
             VideoState.Streaming -> {}
 
             is VideoState.Failed ->
-                if (everStreamed) StaleVideoOverlay(reason = friendlyReason(s.reason))
+                if (everStreamed) StaleVideoOverlay(reason = friendlyReason(s.reason), compact = inPip)
                 // Nothing has ever been on this pane, so there is no stale picture to warn about —
                 // the honest message is that video could not be started, and why.
-                else NoVideoOverlay(reason = friendlyReason(s.reason))
+                else NoVideoOverlay(reason = friendlyReason(s.reason), compact = inPip)
 
             // Before the first frame there is nothing behind this but black, so a spinner is the
             // honest treatment. Afterwards there is a frozen chart, and every non-streaming state
@@ -230,15 +230,15 @@ fun VideoPane(
             // Failed left that frozen chart at full brightness for most of each cycle.
             is VideoState.Connecting, VideoState.Idle ->
                 if (everStreamed) {
-                    StaleVideoOverlay(reason = null)
+                    StaleVideoOverlay(reason = null, compact = inPip)
                 } else if (everFailed) {
                     // Connecting *again* after a failure is not a first connect, and showing the
                     // same bare spinner for both is how "video is broken" spent a whole sea trial
                     // looking like "video is still loading". Keep the diagnosis on screen while
                     // the retry runs underneath it.
-                    NoVideoOverlay(reason = lastFailure?.let(::friendlyReason), retrying = true)
+                    NoVideoOverlay(reason = lastFailure?.let(::friendlyReason), retrying = true, compact = inPip)
                 } else {
-                    CircularProgressIndicator(Modifier.size(48.dp))
+                    CircularProgressIndicator(Modifier.size(if (inPip) 20.dp else 48.dp))
                 }
         }
 
@@ -354,43 +354,51 @@ private fun DelayReadout(millis: Int, late: Boolean, modifier: Modifier = Modifi
  * condition that will not resolve by waiting. This says what happened, keeps saying it while the
  * retry runs, and leaves the controls alone: remote-only is a complete way to use the app, and a
  * dead video pane is not a dead session.
+ *
+ * [compact] is for picture-in-picture: `titleLarge`/`bodyMedium`/24dp padding are sized for a full
+ * remote screen, and drawn unscaled into a picture-in-picture window — often under 200dp wide —
+ * they overflow it rather than fitting in it. Compact keeps only the headline, small, and drops the
+ * explanatory lines entirely; there is no room to state a reason legibly in that little space, and
+ * restoring the app (any tap on the window does this) is one gesture away from reading the real one.
  */
 @Composable
-private fun NoVideoOverlay(reason: String?, retrying: Boolean = false) {
+private fun NoVideoOverlay(reason: String?, retrying: Boolean = false, compact: Boolean = false) {
     Box(
         Modifier.fillMaxSize().background(Color(0xCC000000)),
         contentAlignment = Alignment.Center,
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(24.dp),
+            modifier = Modifier.padding(if (compact) 4.dp else 24.dp),
         ) {
             Text(
                 "NO VIDEO",
                 color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.titleLarge,
+                style = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
             )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = buildString {
-                    append("The display's picture could not be started")
-                    if (reason != null) append(" — ").append(reason)
-                    append(".")
-                    if (retrying) append(" Still trying…")
-                },
-                color = Color.White,
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "The controls still work — switch to Remote for the full keypad.",
-                color = Color(0xCCE8EEF4),
-                style = MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.Center,
-            )
+            if (!compact) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = buildString {
+                        append("The display's picture could not be started")
+                        if (reason != null) append(" — ").append(reason)
+                        append(".")
+                        if (retrying) append(" Still trying…")
+                    },
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "The controls still work — switch to Remote for the full keypad.",
+                    color = Color(0xCCE8EEF4),
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
+                )
+            }
         }
     }
 }
@@ -407,9 +415,14 @@ private fun NoVideoOverlay(reason: String?, retrying: Boolean = false) {
  *
  * It does not auto-dismiss, and it is deliberately **not** a Snackbar — a transient message that
  * clears itself is precisely the wrong pattern for a condition that is still true after it fades.
+ *
+ * [compact] is for picture-in-picture (see [NoVideoOverlay]'s doc on why): the headline — the actual
+ * safety warning — stays, shrunk to fit; the explanatory line is dropped rather than drawn oversized
+ * into a window too small to hold it. The touch-blocking scrim itself is unconditional either way,
+ * though picture-in-picture windows do not receive touches at all.
  */
 @Composable
-private fun StaleVideoOverlay(reason: String?) {
+private fun StaleVideoOverlay(reason: String?, compact: Boolean = false) {
     Box(
         Modifier
             .fillMaxSize()
@@ -435,26 +448,28 @@ private fun StaleVideoOverlay(reason: String?) {
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(24.dp),
+            modifier = Modifier.padding(if (compact) 4.dp else 24.dp),
         ) {
             Text(
                 "VIDEO DELAYED — NOT LIVE",
                 color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.titleLarge,
+                style = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
             )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = if (reason != null) {
-                    "This is the last picture received, not realtime — $reason. Reconnecting…"
-                } else {
-                    "This is the last picture received, not realtime. Reconnecting…"
-                },
-                color = Color.White,
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center,
-            )
+            if (!compact) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = if (reason != null) {
+                        "This is the last picture received, not realtime — $reason. Reconnecting…"
+                    } else {
+                        "This is the last picture received, not realtime. Reconnecting…"
+                    },
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                )
+            }
         }
     }
 }
