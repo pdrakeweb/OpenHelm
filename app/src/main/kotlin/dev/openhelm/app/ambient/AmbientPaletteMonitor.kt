@@ -36,10 +36,20 @@ import kotlinx.coroutines.launch
  * [EXIT_BRIGHT_LUX], [ENTER_DARK_LUX] vs. [EXIT_DARK_LUX]).
  *
  * **Dwell**, so a hand or a dodger's shadow crossing the sensor for a moment does not flip the
- * whole interface: even a reading that has crossed a threshold must persist for [DWELL_MS] before
- * it is actually applied. The one exception is the very first classification after [start] —
- * applied immediately, with no dwell, so nobody stares at a white screen for five seconds after
- * opening the app (or unlocking the phone) at night while the debounce settles.
+ * whole interface: a reading that has crossed a threshold must persist for [DWELL_MS] before it is
+ * actually applied.
+ *
+ * **The one exception is a genuinely first-ever classification** — [lastCommitted] is `null`,
+ * meaning this monitor has never committed anything, not even before a previous [stop]/[start]
+ * cycle (see [start]'s doc: a restart no longer resets it) — and even then, only when that first
+ * reading points *dark*. A dark/night verdict with nothing to compare it to is applied immediately,
+ * because the alternative is showing a placeholder that might be wrong at the one moment (a truly
+ * cold launch) it costs the most to be wrong. A **bright** verdict gets no such exemption and goes
+ * through the ordinary dwell like any other change: a single ambient-light reading is exactly as
+ * likely to be a transient — direct light hitting the sensor for one sample, a warm-up glitch right
+ * after registering the listener — as it is to be real daylight, and trusting it outright is
+ * precisely what let a phone woken at night flash white before correcting to red a few seconds
+ * later. Waiting the same few seconds to confirm a *dark* room, by contrast, has no comparable cost.
  */
 @Singleton
 class AmbientPaletteMonitor @Inject constructor(
@@ -57,10 +67,14 @@ class AmbientPaletteMonitor @Inject constructor(
     private var tickJob: Job? = null
     private var dwellJob: Job? = null
 
-    /** False until the very first classification has been applied — see the class doc's rule. */
-    private var appliedFirstReading = false
-
     @Volatile private var unreliable = false
+
+    /**
+     * The mode last actually applied, or `null` if this monitor has never committed one — not
+     * reset by [stop]/[start] (see [start]'s doc). Read by [classifyLux] for hysteresis and by
+     * [onClassified] to tell a genuinely first-ever classification from a restart with a known
+     * prior.
+     */
     private var lastCommitted: HelmPalette? = null
     private var pendingCandidate: HelmPalette? = null
 
@@ -81,28 +95,35 @@ class AmbientPaletteMonitor @Inject constructor(
      * currently unreliable — cheap to run unconditionally, and it is what seeds the very first
      * classification on a device with no sensor at all.
      *
+     * Deliberately does **not** reset [lastCommitted]. It used to: every call — a true cold launch
+     * and every later restart from [dev.openhelm.app.ui.MainViewModel.onForegrounded] alike — reset
+     * it to `null`, which reopened the "nothing to compare against yet" cold-start window on every
+     * restart, not just the first one ever. Whatever re-armed the monitor near a picture-in-picture
+     * transition (an Activity recreation some OEM's picture-in-picture implementation triggers
+     * despite the window staying visibly pinned is the leading suspect — this class is an
+     * application-scoped singleton, so an in-memory field here survives that either way, once it is
+     * not thrown away on purpose) got exactly that reopened window: a single reading, trusted
+     * outright, with hysteresis disabled because there was nothing left for it to compare against.
+     * Carrying the real prior across restarts closes that — a restart mid-session now behaves like
+     * any other reading, judged against what was actually showing a moment before.
+     *
      * A device *with* a sensor still gets a bounded wait, not an unconditional one: registering a
-     * listener does not guarantee a prompt first callback — some devices are slow to deliver the
-     * first `TYPE_LIGHT` event, and if it is late enough, whatever [palette] happened to hold
-     * before [start] was called (a stale manual choice from a previous session, [DefaultPalette] as
-     * this class's own initial value) keeps showing for however long that takes. If nothing has
-     * arrived within [COLD_START_SENSOR_TIMEOUT_MS], the cold-start rule below applies to a
-     * twilight reading instead — the real sensor reading still wins outright the moment it does
-     * arrive, exactly as if it had simply been a bit slow.
+     * listener does not guarantee a prompt first callback. If nothing has arrived within
+     * [COLD_START_SENSOR_TIMEOUT_MS] *and* there is still no prior at all, the cold-start rule
+     * applies to a twilight reading instead — the real sensor reading still wins outright the
+     * moment it does arrive, exactly as if it had simply been a bit slow.
      *
      * Safe to call repeatedly; a second call while already running does nothing.
      */
     fun start() {
         if (tickJob != null) return
-        appliedFirstReading = false
-        lastCommitted = null
         pendingCandidate = null
         unreliable = false
         lightSensor?.let { sensorManager?.registerListener(listener, it, SensorManager.SENSOR_DELAY_NORMAL) }
         tickJob = scope.launch {
             if (lightSensor != null) {
                 delay(COLD_START_SENSOR_TIMEOUT_MS)
-                if (!appliedFirstReading) onClassified(Twilight.classify(ZonedDateTime.now()))
+                if (lastCommitted == null) onClassified(Twilight.classify(ZonedDateTime.now()))
             }
             while (true) {
                 if (lightSensor == null || unreliable) {
@@ -140,8 +161,13 @@ class AmbientPaletteMonitor @Inject constructor(
     }
 
     private fun onClassified(candidate: HelmPalette) {
-        if (!appliedFirstReading) {
-            appliedFirstReading = true
+        // Genuinely nothing to compare against, and the candidate is not bright: see the class
+        // doc for why this is the one case applied outright, and why "not bright" is load-bearing
+        // — a bright candidate here gets no exemption and falls through to the ordinary dwell below.
+        if (lastCommitted == null && candidate != HelmPalette.HIGH_CONTRAST) {
+            dwellJob?.cancel()
+            dwellJob = null
+            pendingCandidate = null
             commit(candidate)
             return
         }
@@ -172,10 +198,12 @@ class AmbientPaletteMonitor @Inject constructor(
         const val TWILIGHT_POLL_MS = 60_000L
 
         /**
-         * How long [start] waits for a light sensor's first reading before seeding the cold-start
-         * pick from twilight instead. `SENSOR_DELAY_NORMAL` batches at roughly a 200ms period, so
-         * this is generous margin for an ordinary device while still being well inside what the
-         * cold-start rule promises ("immediately", not "eventually").
+         * How long [start] waits for a light sensor's first-ever reading before seeding the
+         * cold-start pick from twilight instead. `SENSOR_DELAY_NORMAL` batches at roughly a 200ms
+         * period, so this is generous margin for an ordinary device while still being well inside
+         * what the cold-start rule promises ("immediately", not "eventually"). Only consulted when
+         * [lastCommitted] is still `null` — a restart with a known prior has no cold-start window
+         * to seed.
          */
         const val COLD_START_SENSOR_TIMEOUT_MS = 1_500L
 
