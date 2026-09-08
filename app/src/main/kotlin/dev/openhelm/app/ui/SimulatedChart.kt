@@ -132,14 +132,14 @@ private fun DrawScope.drawChartBase(
         )
     }
 
-    // Graticule.
+    // Graticule, starting just below the data bar.
     val gStroke = Stroke(width = 1f * u)
     for (gx in 1..4) {
         val px = VIRTUAL_W * gx / 5f
-        drawLine(GraticuleInk, Offset(x(px), y(44f)), Offset(x(px), y(VIRTUAL_H)), gStroke.width)
+        drawLine(GraticuleInk, Offset(x(px), y(DATA_BAR_HEIGHT)), Offset(x(px), y(VIRTUAL_H)), gStroke.width)
     }
     for (gy in 1..3) {
-        val py = 44f + (VIRTUAL_H - 44f) * gy / 4f
+        val py = DATA_BAR_HEIGHT + (VIRTUAL_H - DATA_BAR_HEIGHT) * gy / 4f
         drawLine(GraticuleInk, Offset(0f, y(py)), Offset(x(VIRTUAL_W), y(py)), gStroke.width)
     }
 
@@ -211,7 +211,7 @@ private fun DrawScope.drawChartBase(
 
     // Scale bar and orientation. Kept clear of the data bar, which is painted over the chart
      // afterwards and swallowed both labels when they sat any higher.
-    val barY = y(66f)
+    val barY = y(DATA_BAR_HEIGHT + 22f)
     val barLeft = x(24f)
     val barRight = x(120f)
     drawLine(ChartInk, Offset(barLeft, barY), Offset(barRight, barY), strokeWidth = 1.4f * u)
@@ -233,7 +233,7 @@ private fun DrawScope.drawDataBar(
     measurer: TextMeasurer,
     t: Float,
 ) {
-    val h = y(44f)
+    val h = y(DATA_BAR_HEIGHT)
     drawRect(Color(0xFF1B2A38), size = Size(size.width, h))
     drawLine(Color(0xFF3E5265), Offset(0f, h), Offset(size.width, h), strokeWidth = 1f * u)
 
@@ -272,9 +272,9 @@ private fun DrawScope.drawDataBar(
 
     var cx = x(14f)
     fields.forEach { (label, value) ->
-        drawText(measurer.measure(label, labelStyle), topLeft = Offset(cx, y(6f)))
+        drawText(measurer.measure(label, labelStyle), topLeft = Offset(cx, y(DATA_BAR_LABEL_Y)))
         val v = measurer.measure(value, valueStyle)
-        drawText(v, topLeft = Offset(cx, y(17f)))
+        drawText(v, topLeft = Offset(cx, y(DATA_BAR_VALUE_Y)))
         cx += maxOf(v.size.width.toFloat(), x(72f)) + x(24f)
     }
 
@@ -297,8 +297,11 @@ private fun DrawScope.drawMenuButton(
 ) {
     val right = x(786f)
     val left = x(694f)
-    val top = y(7f)
-    val bottom = y(37f)
+    // Centred in the data bar rather than a fixed offset from its top: the button's own size is
+    // independent of the bar's height (it is icon-sized, not text-driven), so it is the bar that
+    // moved around it, not the other way round.
+    val top = y(DATA_BAR_HEIGHT / 2f - 15f)
+    val bottom = y(DATA_BAR_HEIGHT / 2f + 15f)
 
     drawRoundRect(
         color = Color(0xFF2C3E50),
@@ -357,6 +360,33 @@ private const val CLOCK_START_MIN = 14f * 60f + 20f
 
 private const val VIRTUAL_W = 800f
 private const val VIRTUAL_H = 480f
+
+/**
+ * The data bar, tall enough to actually hold its own two-line stack (8sp label, 17sp value) at the
+ * 1:1 reference scale (`u = 1`) on a real device, not just on paper.
+ *
+ * The original 44 was never big enough for that: a 17sp value line's real rendered height at
+ * typical phone density is on the order of 55-70 real pixels including line-height, and this pane
+ * almost never actually renders at `u = 1` — real panes are usually wider than the 800px reference,
+ * so `u` is usually well above 1, and the bar (whose height and every other position scale up
+ * without a ceiling) grew comfortably ahead of the font (which does, by design, have one — see
+ * `drawSimulatedChart`'s doc). That growing headroom is what hid the mismatch in the only condition
+ * this scene had ever actually been looked at in. A window at or below the 800px reference — a
+ * picture-in-picture window, chiefly — has no such headroom, and the two-line stack overflowed the
+ * bar it was drawn on top of. 130 is sized with real line-height math, not eyeballed: see
+ * [DATA_BAR_LABEL_Y] and [DATA_BAR_VALUE_Y].
+ */
+private const val DATA_BAR_HEIGHT = 130f
+
+/** Label line (8sp) top, with a small margin above it. */
+private const val DATA_BAR_LABEL_Y = 8f
+
+/**
+ * Value line (17sp) top. Below the label with enough of a gap that the two lines cannot touch even
+ * at a high-density device's rendered line-height, and enough room below it, within
+ * [DATA_BAR_HEIGHT], for that same line to fully render without touching the bar's own bottom edge.
+ */
+private const val DATA_BAR_VALUE_Y = 46f
 
 /** Depth in metres at a fixed spot. Constant so the chart does not shimmer frame to frame. */
 private val SOUNDINGS = listOf(
