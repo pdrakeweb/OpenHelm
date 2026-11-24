@@ -2,21 +2,27 @@ package dev.openhelm.app.rrc
 
 import android.util.Log
 import dev.openhelm.app.di.AppScope
+import dev.openhelm.app.net.SocketOwner
+import dev.openhelm.app.net.TcpLiveness
 import dev.openhelm.app.net.WifiNetworkBinder
 import dev.openhelm.app.net.WifiUnavailableException
 import dev.openhelm.protocol.MfdEndpoint
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -24,6 +30,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -63,10 +70,15 @@ sealed interface ConnectionState {
  *    screen, where scanning resumes. Retrying a dead address forever just pins the user to a
  *    reconnect screen that will never deliver.
  * 3. *A stalled peer is a failure.* The MFD never speaks on this socket, so the reader only
- *    detects an orderly close; a half-open connection (AP power-cycled, phone walked out of range)
- *    leaves writes blocking silently for TCP-retransmit timescales. A write watchdog closes the
- *    socket if any single write is in flight longer than [WRITE_STALL_MS], turning the invisible
- *    hang into an ordinary reconnect.
+ *    detects an orderly close; a peer that simply vanishes (display powered off behind a separate
+ *    access point, phone walked out of range) is invisible to plain TCP for minutes to hours.
+ *    [TcpLiveness] shortens that to seconds for both the idle link and the unacknowledged write,
+ *    and a write watchdog closes the socket if any single write is in flight longer than
+ *    [WRITE_STALL_MS] as the backstop on a device that refuses those socket options.
+ * 4. *A loop owns its socket and its right to speak.* Each call to [connect] gets its own
+ *    [SocketOwner] and its own frame queue, and may publish to [state] only while it is the
+ *    current loop. A loop that has been replaced or disconnected can therefore neither close its
+ *    successor's socket nor overwrite its successor's state, however long it takes to unwind.
  */
 @Singleton
 class RrcClient @Inject constructor(
@@ -85,10 +97,18 @@ class RrcClient @Inject constructor(
      */
     fun consumeLoss(): String? = lastLoss.getAndSet(null)
 
-    private var connectionJob: Job? = null
+    /** One connection loop: its job, and the only handle for unblocking its socket I/O. */
+    private class Link(val job: Job, val sockets: SocketOwner)
 
-    @Volatile
-    private var currentSocket: Socket? = null
+    /** The loop that currently owns [state], or null. Guarded by `this`. */
+    private var current: Link? = null
+
+    /**
+     * The most recently launched loop, *including* one already disconnected. A new loop waits for
+     * it to finish unwinding before opening its own socket, so two loops never talk to the display
+     * at once. Guarded by `this`.
+     */
+    private var lastJob: Job? = null
 
     /**
      * Outbound frames. Small and lossy on purpose: when the writer stalls, old key events are
@@ -97,27 +117,27 @@ class RrcClient @Inject constructor(
     @Volatile
     private var frames = Channel<ByteArray>(FRAME_QUEUE, BufferOverflow.DROP_OLDEST)
 
-    /** Nanotime when the in-flight write started; 0 when no write is in flight. */
-    @Volatile
-    private var writeStartedNs = 0L
-
-    @Volatile
-    private var writeStalled = false
-
     /** Start (or restart) the connection loop against [endpoint]. */
+    @Synchronized
     fun connect(endpoint: MfdEndpoint) {
         lastLoss.set(null)
-        val previous = connectionJob
-        previous?.cancel()
-        // Close the socket the previous loop may be *blocked on*. Cancellation cannot interrupt
-        // blocking socket I/O, so without this the join below could sit out a full connect
-        // timeout — switching displays would appear to hang for up to 45 seconds.
-        closeQuietly()
-        connectionJob = scope.launch(Dispatchers.IO) {
+        // Cancels the previous loop *and closes the socket it may be blocked on*. Cancellation
+        // cannot interrupt blocking socket I/O, so without the close the join below could sit out
+        // a full connect timeout — switching displays would appear to hang for up to 45 seconds.
+        retireCurrent()
+        val previous = lastJob
+        val sockets = SocketOwner()
+        val queue = Channel<ByteArray>(FRAME_QUEUE, BufferOverflow.DROP_OLDEST)
+        frames = queue
+        // Lazy so the Link exists before the loop's first statement can ask whether it is current.
+        val job = scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
             previous?.join()
-            frames = Channel(FRAME_QUEUE, BufferOverflow.DROP_OLDEST)
-            runConnection(endpoint)
+            runConnection(coroutineContext.job, endpoint, sockets, queue)
         }
+        current = Link(job, sockets)
+        lastJob = job
+        _state.value = ConnectionState.Connecting(endpoint)
+        job.start()
     }
 
     /**
@@ -128,6 +148,10 @@ class RrcClient @Inject constructor(
      *
      * This only probes reachability; it opens and immediately closes each socket and does not
      * start the connection loop. Binds the process to Wi-Fi first, like every other connect path.
+     *
+     * Never throws (other than for cancellation): callers are UI-scoped coroutines with no
+     * exception handler, where an escaped exception is a crashed app. Anything that goes wrong
+     * while probing an address simply means that address is not reachable.
      */
     suspend fun firstReachable(
         endpoints: List<MfdEndpoint>,
@@ -138,7 +162,11 @@ class RrcClient @Inject constructor(
         if (endpoints.isEmpty()) return@withContext null
         val network = try {
             wifi.bind()
-        } catch (e: WifiUnavailableException) {
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // No Wi-Fi — or the platform refusing the network request outright, which it does
+            // with an unchecked exception.
             return@withContext null
         }
         for (endpoint in endpoints) {
@@ -148,35 +176,23 @@ class RrcClient @Inject constructor(
                     socket.connect(InetSocketAddress(endpoint.host, endpoint.rrcPort), timeoutMs)
                 }
                 return@withContext endpoint
-            } catch (e: IOException) {
-                // Unreachable or refused — try the next remembered display.
-            } catch (e: IllegalArgumentException) {
-                // A malformed endpoint (bad host or port) is as unreachable as a dead one.
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Unreachable, refused, or malformed (bad host or port) — all equally "not this
+                // one"; try the next remembered display.
             }
         }
         null
     }
 
     /** Stop the loop and return to [ConnectionState.Idle]. */
+    @Synchronized
     fun disconnect() {
-        val job = connectionJob
-        connectionJob = null
-        job?.cancel()
-        closeQuietly()
+        retireCurrent()
         wifi.unbind()
         lastLoss.set(null)
         _state.value = ConnectionState.Idle
-        // The cancelled loop cannot be interrupted mid-statement: it may still write a final
-        // Reconnecting after the Idle above (it checks isActive first, but the check-then-write
-        // pair is not atomic). Re-asserting Idle after the loop has fully unwound closes that
-        // window — unless a new connect() has taken over in the meantime, in which case the new
-        // loop owns the state.
-        if (job != null) {
-            scope.launch {
-                job.join()
-                if (connectionJob == null) _state.value = ConnectionState.Idle
-            }
-        }
     }
 
     /**
@@ -187,15 +203,43 @@ class RrcClient @Inject constructor(
         frames.trySend(frame)
     }
 
-    private suspend fun runConnection(endpoint: MfdEndpoint) {
+    /** Cancel the current loop and unblock whatever it is doing. Caller holds the lock. */
+    private fun retireCurrent() {
+        val link = current ?: return
+        current = null
+        link.job.cancel()
+        link.sockets.shutdown()
+    }
+
+    /**
+     * Publish [next] — but only on behalf of the loop that still owns the connection. A loop that
+     * has been disconnected or replaced keeps running until its blocking I/O returns, and must not
+     * be able to write "Reconnecting" over the Idle (or over the next loop's "Connecting") that
+     * replaced it. Taking the same lock as [connect] and [disconnect] makes the check-and-write
+     * atomic, which an `isActive` check alone never was.
+     */
+    private fun publish(owner: Job, next: ConnectionState) {
+        synchronized(this) {
+            if (current?.job === owner) _state.value = next
+        }
+    }
+
+    private suspend fun runConnection(
+        self: Job,
+        endpoint: MfdEndpoint,
+        sockets: SocketOwner,
+        queue: Channel<ByteArray>,
+    ) {
         var attempt = 0
         while (currentCoroutineContext().isActive) {
-            if (attempt == 0) _state.value = ConnectionState.Connecting(endpoint)
+            if (attempt == 0) publish(self, ConnectionState.Connecting(endpoint))
+            var connectedAtNs = 0L
             val reason: String = try {
                 // F1b: re-assert the Wi-Fi binding on every attempt, not just the first.
                 val network = wifi.bind()
-                val socket = network.socketFactory.createSocket()
-                currentSocket = socket
+                // Adopted before anything can block on it, so disconnect() can always reach it —
+                // and refused outright if disconnect() already happened while we waited for Wi-Fi.
+                val socket = sockets.adopt(network.socketFactory.createSocket())
                 socket.tcpNoDelay = true
                 socket.keepAlive = true
                 // The first attempt is generous — slow associations on boat Wi-Fi are real, and a
@@ -205,11 +249,12 @@ class RrcClient @Inject constructor(
                 // "Reconnecting" before being handed back to the connect screen.
                 val timeout = if (attempt == 0) CONNECT_TIMEOUT_MS else RETRY_CONNECT_TIMEOUT_MS
                 socket.connect(InetSocketAddress(endpoint.host, endpoint.rrcPort), timeout)
+                TcpLiveness.enable(socket)
 
-                drainStale()
-                attempt = 0
-                _state.value = ConnectionState.Connected(endpoint)
-                pumpUntilFailure(socket)
+                drainStale(queue)
+                connectedAtNs = System.nanoTime()
+                publish(self, ConnectionState.Connected(endpoint))
+                pumpUntilFailure(socket, queue)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: WifiUnavailableException) {
@@ -221,94 +266,113 @@ class RrcClient @Inject constructor(
                 Log.w(TAG, "Connection attempt failed", e)
                 e.message ?: e.javaClass.simpleName
             } finally {
-                closeQuietly()
-            }
-            attempt++
-            if (attempt > MAX_ATTEMPTS) {
-                // Rule 2: permanently broken. Record why, go Idle, hand back to the connect
-                // screen. The loss reason must be set before the state, so an observer that
-                // reacts to Idle finds it already there.
-                lastLoss.set(reason)
-                if (currentCoroutineContext().isActive) {
-                    wifi.unbind()
-                    _state.value = ConnectionState.Idle
-                }
-                return
+                sockets.closeAll()
             }
             if (!currentCoroutineContext().isActive) return
-            _state.value = ConnectionState.Reconnecting(endpoint, reason)
+
+            // The retry budget is refilled only by a connection that actually *held*. Resetting it
+            // on every successful connect let a display that accepts and then immediately drops
+            // the socket (it serves one remote at a time, say, and another is attached) flap
+            // Connected/Reconnecting once a second forever, never reaching rule 2.
+            val heldMs = if (connectedAtNs == 0L) 0L else (System.nanoTime() - connectedAtNs) / 1_000_000L
+            if (heldMs >= STABLE_CONNECTION_MS) attempt = 0
+
+            attempt++
+            if (attempt > MAX_ATTEMPTS) {
+                giveUp(self, reason)
+                return
+            }
+            publish(self, ConnectionState.Reconnecting(endpoint, reason))
             delay(backoffMs(attempt))
         }
     }
 
     /**
-     * Runs until the connection dies, then returns the reason. Three ways it dies: the reader
-     * notices the MFD closing the socket, a write fails outright, or the write watchdog closes the
-     * socket under a write that has been blocking too long ([WRITE_STALL_MS]) — the half-open
-     * case, which otherwise shows "Connected" while every key press silently vanishes.
+     * Rule 2: permanently broken. Record why, go Idle, hand back to the connect screen — unless
+     * this loop was replaced or disconnected in the meantime, in which case its opinion about the
+     * connection is no longer anyone's business. The loss reason is set before the state, so an
+     * observer that reacts to Idle finds it already there.
      */
-    private suspend fun pumpUntilFailure(socket: Socket): String = try {
-        writeStalled = false
-        writeStartedNs = 0L
-        coroutineScope {
-            launch(Dispatchers.IO) {
-                val input = socket.getInputStream()
-                val scratch = ByteArray(64)
-                while (input.read(scratch) != -1) {
-                    // The protocol has no replies; anything read is ignored.
+    private fun giveUp(owner: Job, reason: String) {
+        synchronized(this) {
+            if (current?.job !== owner) return
+            current = null
+            lastLoss.set(reason)
+            wifi.unbind()
+            _state.value = ConnectionState.Idle
+        }
+    }
+
+    /**
+     * Runs until the connection dies, then returns the reason. Three ways it dies: the reader
+     * notices the socket ending — an orderly close by the MFD, or the kernel declaring the peer
+     * dead ([TcpLiveness]); a write fails outright; or the write watchdog closes the socket under
+     * a write that has been blocking too long ([WRITE_STALL_MS]).
+     */
+    private suspend fun pumpUntilFailure(socket: Socket, queue: ReceiveChannel<ByteArray>): String {
+        // Nanotime when the in-flight write started; 0 when no write is in flight.
+        val writeStartedNs = AtomicLong(0L)
+        val writeStalled = AtomicBoolean(false)
+        return try {
+            coroutineScope {
+                launch(Dispatchers.IO) {
+                    val input = socket.getInputStream()
+                    val scratch = ByteArray(64)
+                    while (input.read(scratch) != -1) {
+                        // The protocol has no replies; anything read is ignored.
+                    }
+                    throw IOException("Connection closed by the display")
                 }
-                throw IOException("Connection closed by the display")
-            }
-            launch {
-                // The write watchdog. It closes the socket rather than throwing directly: the
-                // writer is *blocked inside write()* and only the close can unblock it — a
-                // cancellation would leave this scope waiting on the blocked writer forever.
-                while (true) {
-                    delay(WATCHDOG_POLL_MS)
-                    val started = writeStartedNs
-                    if (started != 0L && System.nanoTime() - started >= WRITE_STALL_MS * 1_000_000L) {
-                        writeStalled = true
-                        closeQuietly()
+                launch {
+                    // The write watchdog. It closes the socket rather than throwing directly: the
+                    // writer is *blocked inside write()* and only the close can unblock it — a
+                    // cancellation would leave this scope waiting on the blocked writer forever.
+                    while (true) {
+                        delay(WATCHDOG_POLL_MS)
+                        val started = writeStartedNs.get()
+                        if (started != 0L && System.nanoTime() - started >= WRITE_STALL_MS * 1_000_000L) {
+                            writeStalled.set(true)
+                            closeQuietly(socket)
+                        }
                     }
                 }
-            }
-            val output = socket.getOutputStream()
-            try {
-                for (frame in frames) {
-                    writeStartedNs = System.nanoTime()
-                    output.write(frame)
-                    output.flush()
-                    writeStartedNs = 0L
+                val output = socket.getOutputStream()
+                try {
+                    for (frame in queue) {
+                        writeStartedNs.set(System.nanoTime())
+                        output.write(frame)
+                        output.flush()
+                        writeStartedNs.set(0L)
+                    }
+                } catch (e: IOException) {
+                    // Close before rethrowing: the reader is blocked in read() and coroutineScope
+                    // will not finish tearing down until the close unblocks it.
+                    closeQuietly(socket)
+                    throw e
                 }
-            } catch (e: IOException) {
-                // Close before rethrowing: the reader is blocked in read() and coroutineScope
-                // will not finish tearing down until the close unblocks it.
-                closeQuietly()
-                throw e
+                error("frame channel closed unexpectedly")
             }
-            error("frame channel closed unexpectedly")
+        } catch (e: IOException) {
+            // The frame being written is dropped with the socket. Do not retry it: by the time a
+            // reconnect succeeds it would be a stale input, and re-sending old key events to a
+            // chartplotter is worse than losing them.
+            if (writeStalled.get()) "Send timed out — the display stopped responding"
+            else e.message ?: e.javaClass.simpleName
         }
-    } catch (e: IOException) {
-        // The frame being written is dropped with the socket. Do not retry it: by the time a
-        // reconnect succeeds it would be a stale input, and re-sending old key events to a
-        // chartplotter is worse than losing them.
-        if (writeStalled) "Send timed out — the display stopped responding"
-        else e.message ?: e.javaClass.simpleName
     }
 
     /** Anything queued before the connection opened is by definition stale input. */
-    private fun drainStale() {
-        while (frames.tryReceive().isSuccess) {
+    private fun drainStale(queue: ReceiveChannel<ByteArray>) {
+        while (queue.tryReceive().isSuccess) {
             // discard
         }
     }
 
-    private fun closeQuietly() {
+    private fun closeQuietly(socket: Socket) {
         try {
-            currentSocket?.close()
+            socket.close()
         } catch (_: IOException) {
         }
-        currentSocket = null
     }
 
     private fun backoffMs(attempt: Int): Long =
@@ -331,6 +395,14 @@ class RrcClient @Inject constructor(
         const val MAX_ATTEMPTS = 5
         const val INITIAL_BACKOFF_MS = 1_000L
         const val MAX_BACKOFF_MS = 15_000L
+
+        /**
+         * How long a connection must stay up before it counts as having worked, refilling the
+         * retry budget. Deliberately short: it only has to tell "connected" apart from "accepted
+         * and immediately dropped". A link that genuinely works for a few seconds at a time is
+         * poor, not broken, and keeps its fast first-backoff reconnect.
+         */
+        const val STABLE_CONNECTION_MS = 2_000L
 
         /** A single write blocked this long means the peer is gone, whatever TCP still hopes. */
         const val WRITE_STALL_MS = 5_000L

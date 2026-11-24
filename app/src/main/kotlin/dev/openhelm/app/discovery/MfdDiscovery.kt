@@ -17,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -72,6 +73,14 @@ class MfdDiscovery @Inject constructor(
 
     private var listeners = listOf<NsdManager.DiscoveryListener>()
 
+    /**
+     * Synchronized with [stop] because NsdManager delivers `onStartDiscoveryFailed` on its own
+     * thread, and that callback calls [stop]. Unsynchronized, a failure reported for the first
+     * listener while this was still registering the second ran its teardown against a listener
+     * list that had not been assigned yet — leaving the second listener registered with nothing
+     * that would ever unregister it.
+     */
+    @Synchronized
     fun start() {
         if (_searching.value) return
         // A previous session that *failed to start* leaves debris — one successfully registered
@@ -85,12 +94,16 @@ class MfdDiscovery @Inject constructor(
             rrcByHost.clear()
         }
         _endpoints.value = emptyList()
+        // Whatever the last search found and never got round to resolving belongs to that search.
+        while (resolveQueue.tryReceive().isSuccess) {
+            // discard
+        }
         _searching.value = true
         multicastLock.acquire()
 
         resolveWorker = scope.launch(Dispatchers.IO) {
             for (info in resolveQueue) {
-                resolve(info)?.let { merge(it) }
+                resolveWithRetry(info)?.let { merge(it) }
             }
         }
 
@@ -123,6 +136,7 @@ class MfdDiscovery @Inject constructor(
     }
 
     /** Idempotent: safe to call on a session that never fully started, or twice. */
+    @Synchronized
     fun stop() {
         listeners.forEach {
             try {
@@ -138,7 +152,31 @@ class MfdDiscovery @Inject constructor(
         _searching.value = false
     }
 
-    private suspend fun resolve(info: NsdServiceInfo): NsdServiceInfo? =
+    /** What one resolve attempt came to. A timeout is the absence of one of these. */
+    private class Resolution(val info: NsdServiceInfo?)
+
+    /**
+     * Resolve [info], trying again if NsdManager *reports* a failure.
+     *
+     * A service is announced once per search, so a resolve that fails is a display that stays
+     * invisible until the user scans again — and reported failures are routine rather than rare:
+     * `FAILURE_ALREADY_ACTIVE` whenever a resolve from the previous search (cancelled on our side,
+     * still running on the platform's) has not finished, and transient errors on exactly the weak
+     * links this app lives on. A short pause clears both.
+     *
+     * A *timeout* is not retried: that is the resolver not answering at all, and another five
+     * seconds of this single worker's time is better spent on whatever is queued behind it.
+     */
+    private suspend fun resolveWithRetry(info: NsdServiceInfo): NsdServiceInfo? {
+        repeat(RESOLVE_ATTEMPTS) { attempt ->
+            if (attempt > 0) delay(RESOLVE_RETRY_DELAY_MS)
+            val result = resolve(info) ?: return null
+            result.info?.let { return it }
+        }
+        return null
+    }
+
+    private suspend fun resolve(info: NsdServiceInfo): Resolution? =
         // Bounded: NsdManager has a known failure mode where a resolve never calls back, and this
         // worker is a single serial queue — one silent resolve would otherwise wedge discovery of
         // everything behind it, forever, with nothing on screen to say why. On timeout this entry
@@ -147,12 +185,14 @@ class MfdDiscovery @Inject constructor(
             suspendCancellableCoroutine { cont ->
                 @Suppress("DEPRECATION") // replacement requires API 34; this must run on 26+
                 nsd.resolveService(info, object : NsdManager.ResolveListener {
+                    // A listener can be called after its wait was abandoned (the timeout above, or
+                    // the search being stopped); there is then nobody to tell.
                     override fun onServiceResolved(resolved: NsdServiceInfo) {
-                        cont.resume(resolved)
+                        if (cont.isActive) cont.resume(Resolution(resolved))
                     }
 
                     override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
-                        cont.resume(null)
+                        if (cont.isActive) cont.resume(Resolution(null))
                     }
                 })
             }
@@ -208,5 +248,7 @@ class MfdDiscovery @Inject constructor(
 
     private companion object {
         const val RESOLVE_TIMEOUT_MS = 5_000L
+        const val RESOLVE_ATTEMPTS = 3
+        const val RESOLVE_RETRY_DELAY_MS = 400L
     }
 }

@@ -79,6 +79,38 @@ class RtspSessionTest {
         // is enough that the upper-cased header did not break body reading (Content-Length path).
     }
 
+    @Test
+    fun `an implausible Content-Length is refused rather than allocated`() {
+        // A device on the Wi-Fi chooses this number; an SDP is a few hundred bytes.
+        val (s, _) = session("RTSP/1.0 200 OK\r\nCSeq: 1\r\nContent-Length: 2000000000\r\n\r\n")
+        assertThrows(RtspException::class.java) { s.describe() }
+    }
+
+    // ---- teardown ---------------------------------------------------------------------------
+
+    @Test
+    fun `teardown before any session exists sends nothing`() {
+        // An attempt that died in DESCRIBE has no session to end. Sending TEARDOWN anyway earns
+        // an error response and a wait to read it — on a link that has usually just failed.
+        val (s, out) = session("")
+        s.teardown()
+        assertEquals("", out.toString("US-ASCII"))
+    }
+
+    @Test
+    fun `teardown ends an established session and survives the display not answering`() {
+        val describe = response("200 OK", body = sdp)
+        val setup = response("200 OK", headers = listOf("Session: ABC123;timeout=30"))
+        // No response to TEARDOWN at all: the stream just ends.
+        val (s, out) = session(describe + setup)
+        val track = s.describe()
+        s.setupUdp(track.control, 5000)
+        s.teardown() // must not throw
+        val sent = out.toString("US-ASCII")
+        assertTrue("TEARDOWN not sent: $sent", "TEARDOWN rtsp://h/x RTSP/1.0" in sent)
+        assertTrue("TEARDOWN must carry the session: $sent", sent.substringAfter("TEARDOWN").contains("Session: ABC123"))
+    }
+
     // ---- keepalive fallback -----------------------------------------------------------------
 
     @Test

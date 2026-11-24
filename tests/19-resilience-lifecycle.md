@@ -218,6 +218,55 @@ screen (a battery bug that only shows up as a flat phone next morning).
 
 ---
 
+## L7 — Screen off and straight back on (stop/start inside the teardown window)
+
+Backgrounding sends RTSP TEARDOWN and gives it up to 2 s to complete. Coming back inside that
+window used to start the new pipeline while the old one was still unwinding, and the old one's
+cleanup closed the new one's sockets.
+
+**STEPS**
+
+```bash
+for i in $(seq 1 10); do
+  "$ADB" shell input keyevent KEYCODE_SLEEP
+  sleep 0.3
+  "$ADB" shell input keyevent KEYCODE_WAKEUP
+  "$ADB" shell wm dismiss-keyguard
+  sleep 4
+done
+"$ADB" logcat -d -s OpenHelm | grep -c "Video pipeline attempt failed"
+grep -c TEARDOWN emu.log
+```
+
+Repeat by toggling Mirror → Remote only → Mirror as fast as the control allows.
+
+**EXPECTED** video returns every time without the "video lost" overlay; no
+`Video pipeline attempt failed` lines; one TEARDOWN per cycle in the emulator log.
+
+- **PASS/FAIL:** FAIL on any `Socket closed` failure, or a cycle with no TEARDOWN.
+
+---
+
+## L8 — Display comes back after the session was given up
+
+**STEPS**
+
+```bash
+python scripts/fault.py rrc-down
+# wait for the app to give up (~30–60 s) and land on the connect screen;
+# wait for the scan to report nothing found; do NOT touch the phone
+sleep 90
+python scripts/fault.py rrc-up
+```
+
+**EXPECTED** within ~10 s of `rrc-up` (`REPROBE_INTERVAL_MS`) the app reconnects by itself and
+video resumes. Nothing is probed while the app is backgrounded, after an explicit Disconnect, in
+simulation, or from the manual-entry and settings screens.
+
+- **PASS/FAIL:** FAIL if the connect screen stays put until "Scan again" is tapped.
+
+---
+
 ## PASS/FAIL — file summary
 
 | ID | Requires | Status |
@@ -228,3 +277,5 @@ screen (a battery bug that only shows up as a flat phone next morning).
 | L4 Disconnect mid-reconnect | A/B/C | not yet executed |
 | L5 cold start into a dead display | A/B/C | not yet executed |
 | L6 screen-on / immersive across an outage | A/B/C | not yet executed |
+| L7 stop/start inside the teardown window | A/B/C | not yet executed |
+| L8 display returns after give-up | A/B/C | not yet executed |

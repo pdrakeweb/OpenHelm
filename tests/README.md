@@ -262,8 +262,13 @@ apart silently:
 | Control retry budget | 5 attempts, backoff 1/2/4/8/15 s (~30 s) then **give up → connect screen** | `RrcClient.MAX_ATTEMPTS` |
 | Control connect timeout | 45 s first attempt, 20 s on retries | `RrcClient.CONNECT_TIMEOUT_MS` |
 | Write stall watchdog | 5 s | `RrcClient.WRITE_STALL_MS` |
-| Video retry | **unbounded**, backoff 3 s → 15 s | `VideoPlayer.RETRY_BACKOFF_MS` |
-| Video stall timeout | 10 s with no RTP | `VideoPlayer.RTP_STALL_TIMEOUT_MS` |
+| Control dead-peer detection | ~11 s idle (keepalive 5 s + 3 × 2 s), 10 s for an unacknowledged write | `TcpLiveness.enable` |
+| Control retry-budget refill | a connection must hold 2 s to reset the attempt count | `RrcClient.STABLE_CONNECTION_MS` |
+| Video retry | **unbounded**, backoff 3 s → 15 s, restarting at 3 s after any attempt that delivered media | `VideoPlayer.RETRY_BACKOFF_MS` |
+| Video stall timeout | 10 s with no RTP **from the display** | `VideoPlayer.RTP_STALL_TIMEOUT_MS` |
+| Frozen-picture watchdog | 15 s of media with no frame rendered | `VideoPlayer.RENDER_STALL_MS` |
+| RTSP TEARDOWN wait | 1.5 s | `VideoPlayer.TEARDOWN_RESPONSE_TIMEOUT_MS` |
+| Known-display re-probe | every 10 s after an empty scan, while the connect screen is visible | `MainViewModel.REPROBE_INTERVAL_MS` |
 | RTSP response timeout | 15 s | `VideoPlayer.RTSP_RESPONSE_TIMEOUT_MS` |
 | Discovery window | 12 s | `MainViewModel.DISCOVERY_WINDOW_MS` |
 

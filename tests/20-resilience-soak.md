@@ -188,6 +188,14 @@ fires once a write actually *blocks*, which requires the socket send buffer to f
 11-byte control frames. This is inherent to a write-only protocol with no heartbeat; the MFD never
 speaks on the control socket, so there is nothing to time out on.
 
+**Scope note (2026-11-24):** this limitation is specifically a display whose *application* has
+hung while its TCP stack keeps acknowledging. A display that is **gone** — powered off, unplugged,
+out of range with the phone still associated to a separate access point — is a different case and
+is now detected in ~10 s by `TcpLiveness` (short keepalive timing plus `TCP_USER_TIMEOUT`), where
+it previously showed `Connected` for anything from 15 minutes to 2 hours. `stall-on` does not
+exercise that path; pulling the emulator host's network cable, or `iptables -A INPUT -p tcp
+--dport 50000 -j DROP` on it, does.
+
 **Verified 2026-07-28**: 8 frames sent during a stall all arrived with a single timestamp on
 release. Two mitigations are recorded in [16](16-resilience-faults.md); neither is implemented, and
 neither should be attempted without device evidence — the obvious one (drop stale frames) risks

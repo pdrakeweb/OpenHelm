@@ -324,7 +324,10 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             discovery.endpoints.collect { found ->
                 val endpoint = found.firstOrNull() ?: return@collect
-                if (connection.value is ConnectionState.Idle && route == Route.CONNECT) {
+                // Not in simulation: a resolve already in flight when the user entered it can
+                // still publish here, and connecting underneath the simulated screen would send
+                // its "nothing leaves the phone" key presses to a real display.
+                if (connection.value is ConnectionState.Idle && route == Route.CONNECT && !simulationMode) {
                     stopDiscovery()
                     rrc.connect(endpoint)
                 }
@@ -351,6 +354,12 @@ class MainViewModel @Inject constructor(
      */
     fun enterSimulation() {
         if (connection.value !is ConnectionState.Idle) disconnect()
+        // The launch probe outlives the connect screen it was started from, and would otherwise
+        // connect for real a moment after the simulated screen appeared.
+        probeJob?.cancel()
+        probeJob = null
+        _probingRecents.value = false
+        stopDiscovery()
         simulationMode = true
     }
 
@@ -383,7 +392,7 @@ class MainViewModel @Inject constructor(
                 _probingRecents.value = true
                 try {
                     val reachable = rrc.firstReachable(recents.map { it.endpoint })
-                    if (reachable != null && connection.value is ConnectionState.Idle) {
+                    if (reachable != null && connection.value is ConnectionState.Idle && !simulationMode) {
                         rrc.connect(reachable)
                         return@launch
                     }
@@ -450,6 +459,41 @@ class MainViewModel @Inject constructor(
             if (discovered.value.isEmpty()) {
                 discovery.stop()
                 _discoveryTimedOut.value = true
+                watchForKnownDisplay()
+            }
+        }
+    }
+
+    /**
+     * After a search has come up empty: keep quietly checking whether a remembered display has
+     * come back, and connect when one does.
+     *
+     * Without this the connect screen was a dead end for the most ordinary outage there is. A
+     * display that is power-cycled takes longer to boot than the control channel's whole retry
+     * budget, so the session is given up, the app lands here, the one search finds nothing because
+     * the display is still booting — and then nothing further ever happens until someone picks the
+     * phone up and taps "Scan again". At a helm, the phone is on a mount and nobody does.
+     *
+     * Runs inside the discovery timeout job, so it lives exactly as long as that does: leaving the
+     * connect screen, an explicit Disconnect, a manual connect or a fresh scan all cancel it. It
+     * probes only what [startAutoConnect] would probe (remembered, local addresses), only while
+     * the app is on screen, and costs one short TCP connect per remembered display per round.
+     */
+    private suspend fun watchForKnownDisplay() {
+        while (true) {
+            delay(REPROBE_INTERVAL_MS)
+            if (!foreground || autoConnectSuppressed || simulationMode) continue
+            if (route != Route.CONNECT || connection.value !is ConnectionState.Idle) continue
+            val recents = store.rememberedDisplays.first()
+                .filter { LocalAddresses.isLocal(it.endpoint.host) }
+            if (recents.isEmpty()) continue
+            val reachable = rrc.firstReachable(recents.map { it.endpoint }) ?: continue
+            // Re-checked: the probe took real time, and the user may have acted during it.
+            if (!autoConnectSuppressed && !simulationMode && route == Route.CONNECT &&
+                connection.value is ConnectionState.Idle
+            ) {
+                rrc.connect(reachable)
+                return
             }
         }
     }
@@ -614,6 +658,9 @@ class MainViewModel @Inject constructor(
      */
     private var videoPausedForBackground = false
 
+    /** True between `onStart` and `onStop` — nothing probes the network unprompted outside that. */
+    private var foreground = false
+
     /**
      * The app is no longer visible: the screen turned off, or the app was switched away from.
      *
@@ -627,6 +674,7 @@ class MainViewModel @Inject constructor(
      * its own, and there is no known reason on this side to do anything to it.
      */
     fun onBackgrounded() {
+        foreground = false
         if (mirroring && videoState.value != VideoState.Idle) {
             videoPausedForBackground = true
             player.stop()
@@ -637,6 +685,7 @@ class MainViewModel @Inject constructor(
 
     /** The app is visible again. Undoes exactly what [onBackgrounded] did, nothing more. */
     fun onForegrounded() {
+        foreground = true
         if (videoPausedForBackground) {
             videoPausedForBackground = false
             val surface = lastSurface
@@ -770,12 +819,19 @@ class MainViewModel @Inject constructor(
      * this guard is what makes the promise true regardless of what the UI shows.
      */
     private fun connectedEndpoint(): MfdEndpoint? =
-        (connection.value as? ConnectionState.Connected)?.endpoint
+        if (simulationMode) null else (connection.value as? ConnectionState.Connected)?.endpoint
 
     private companion object {
         // Long enough for a healthy network to answer, short enough not to feel hung. Manual
         // connect is always one tap away, so this is a nudge toward it, not a wall.
         const val DISCOVERY_WINDOW_MS = 12_000L
+
+        /**
+         * How often the connect screen re-checks the remembered displays once a search has come
+         * up empty. Frequent enough that a display finishing its boot is picked up without anyone
+         * noticing the wait; rare enough to be free.
+         */
+        const val REPROBE_INTERVAL_MS = 10_000L
 
         /** How many remembered displays the connect screen offers as buttons. */
         const val RECENT_BUTTONS = 4
