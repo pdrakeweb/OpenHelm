@@ -45,3 +45,22 @@ internal fun parseDelayNotification(saved: String?): DelayNotification =
 /** Clamp a persisted threshold to something offered, so a stale value cannot strand the UI. */
 internal fun parseDelayThreshold(saved: Int?): Int =
     saved?.takeIf { it in DelayThresholdChoices } ?: DefaultDelayThresholdSeconds
+
+/**
+ * How old a held picture is, for the banner over it: `45 s`, `2 min 05 s`, `1 h 03 min`.
+ *
+ * Whole seconds, and never rounded *down* across a unit — a picture 119 seconds old reads
+ * `1 min 59 s`, not "1 min" — because this number is what tells someone how far the boat has moved
+ * since the chart in front of them was true.
+ */
+internal fun formatPictureAge(ageMs: Long): String {
+    val total = (ageMs.coerceAtLeast(0L) / 1_000L)
+    val h = total / 3_600
+    val m = (total % 3_600) / 60
+    val sec = total % 60
+    return when {
+        h > 0 -> "%d h %02d min".format(java.util.Locale.ROOT, h, m)
+        m > 0 -> "%d min %02d s".format(java.util.Locale.ROOT, m, sec)
+        else -> "$sec s"
+    }
+}

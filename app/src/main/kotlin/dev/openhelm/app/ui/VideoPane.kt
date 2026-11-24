@@ -2,6 +2,7 @@ package dev.openhelm.app.ui
 
 import android.graphics.Matrix
 import android.graphics.SurfaceTexture
+import android.os.SystemClock
 import android.view.Surface
 import android.view.TextureView
 import androidx.compose.foundation.background
@@ -43,6 +44,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.openhelm.app.video.RtpTransport
 import dev.openhelm.app.video.VideoState
+import kotlinx.coroutines.delay
 import java.util.Locale
 
 /**
@@ -77,6 +79,7 @@ fun VideoPane(
     inPip: Boolean = false,
 ) {
     val videoState by viewModel.videoState.collectAsStateWithLifecycle()
+    val lastFrameAtMs by viewModel.videoLastFrameAtMs.collectAsStateWithLifecycle()
     val stats by viewModel.videoStats.collectAsStateWithLifecycle()
 
     var textureView by remember { mutableStateOf<TextureView?>(null) }
@@ -218,7 +221,7 @@ fun VideoPane(
             VideoState.Streaming -> {}
 
             is VideoState.Failed ->
-                if (everStreamed) StaleVideoOverlay(reason = friendlyReason(s.reason), compact = inPip)
+                if (everStreamed) StaleVideoOverlay(friendlyReason(s.reason), lastFrameAtMs, compact = inPip)
                 // Nothing has ever been on this pane, so there is no stale picture to warn about —
                 // the honest message is that video could not be started, and why.
                 else NoVideoOverlay(reason = friendlyReason(s.reason), compact = inPip)
@@ -230,7 +233,7 @@ fun VideoPane(
             // Failed left that frozen chart at full brightness for most of each cycle.
             is VideoState.Connecting, VideoState.Idle ->
                 if (everStreamed) {
-                    StaleVideoOverlay(reason = null, compact = inPip)
+                    StaleVideoOverlay(reason = null, lastFrameAtMs, compact = inPip)
                 } else if (everFailed) {
                     // Connecting *again* after a failure is not a first connect, and showing the
                     // same bare spinner for both is how "video is broken" spent a whole sea trial
@@ -440,9 +443,22 @@ private fun NoVideoOverlay(reason: String?, retrying: Boolean = false, compact: 
  * safety warning — stays, shrunk to fit; the explanatory line is dropped rather than drawn oversized
  * into a window too small to hold it. The touch-blocking scrim itself is unconditional either way,
  * though picture-in-picture windows do not receive touches at all.
+ *
+ * **And it says how old.** "Not live" covers five seconds and five minutes alike, and they are not
+ * alike: under sail the first is the same chart and the second is a quarter of a mile ago. The
+ * session is held open for minutes precisely so this picture stays available as a reference, and
+ * a reference is only usable with its age on it. [lastFrameAtMs] is the `elapsedRealtime` of the
+ * last frame rendered; the age counts up once a second, in picture-in-picture too.
  */
 @Composable
-private fun StaleVideoOverlay(reason: String?, compact: Boolean = false) {
+private fun StaleVideoOverlay(reason: String?, lastFrameAtMs: Long?, compact: Boolean = false) {
+    var ageMs by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(lastFrameAtMs) {
+        while (true) {
+            ageMs = lastFrameAtMs?.let { SystemClock.elapsedRealtime() - it }
+            delay(1_000)
+        }
+    }
     Box(
         Modifier
             .fillMaxSize()
@@ -477,6 +493,15 @@ private fun StaleVideoOverlay(reason: String?, compact: Boolean = false) {
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
             )
+            ageMs?.let { age ->
+                Text(
+                    text = if (compact) "${formatPictureAge(age)} old" else "Picture is ${formatPictureAge(age)} old",
+                    color = Color.White,
+                    style = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                )
+            }
             if (!compact) {
                 Spacer(Modifier.height(8.dp))
                 Text(

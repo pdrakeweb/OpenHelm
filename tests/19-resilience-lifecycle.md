@@ -196,7 +196,7 @@ a phantom remote screen.
 
 ## L6 — Screen-on and immersive across an outage
 
-**STEPS** with a session live, `python scripts/fault.py net-down`; wait for the give-up.
+**STEPS** with a session live, `python scripts/fault.py net-down`; wait for the give-up (10 min).
 
 **EXPECTED**
 
@@ -218,6 +218,80 @@ screen (a battery bug that only shows up as a flat phone next morning).
 
 ---
 
+## L9 — Short outage keeps the picture, and returning to the app retries at once
+
+**STEPS**
+
+```bash
+python scripts/fault.py net-down
+sleep 180                                    # three minutes: well inside the 10 min hold
+"$ADB" shell input keyevent KEYCODE_HOME     # leave the app…
+sleep 20
+python scripts/fault.py net-up
+"$ADB" shell monkey -p dev.openhelm.app 1    # …and come back
+```
+
+**EXPECTED**
+
+1. Throughout the outage the remote screen stays up with the last picture visible under
+   `VIDEO DELAYED — NOT LIVE`, and `Picture is 2 min 59 s old` (or thereabouts) counting up.
+2. On returning to the app, control reconnects within ~1–2 s — not after the remainder of a 15 s
+   backoff — and the banner clears as soon as a new frame renders.
+
+- **PASS/FAIL:** FAIL if the app lands on the connect screen inside 10 min, if the age is missing
+  or stops counting, or if the reconnect waits out a backoff after the app is foregrounded.
+
+---
+
+## L7 — Screen off and straight back on (stop/start inside the teardown window)
+
+Backgrounding sends RTSP TEARDOWN and gives it up to 2 s to complete. Coming back inside that
+window used to start the new pipeline while the old one was still unwinding, and the old one's
+cleanup closed the new one's sockets.
+
+**STEPS**
+
+```bash
+for i in $(seq 1 10); do
+  "$ADB" shell input keyevent KEYCODE_SLEEP
+  sleep 0.3
+  "$ADB" shell input keyevent KEYCODE_WAKEUP
+  "$ADB" shell wm dismiss-keyguard
+  sleep 4
+done
+"$ADB" logcat -d -s OpenHelm | grep -c "Video pipeline attempt failed"
+grep -c TEARDOWN emu.log
+```
+
+Repeat by toggling Mirror → Remote only → Mirror as fast as the control allows.
+
+**EXPECTED** video returns every time without the "video lost" overlay; no
+`Video pipeline attempt failed` lines; one TEARDOWN per cycle in the emulator log.
+
+- **PASS/FAIL:** FAIL on any `Socket closed` failure, or a cycle with no TEARDOWN.
+
+---
+
+## L8 — Display comes back after the session was given up
+
+**STEPS**
+
+```bash
+python scripts/fault.py rrc-down
+# wait for the app to give up (10 min for an established session) and land on the
+# connect screen; wait for the scan to report nothing found; do NOT touch the phone
+sleep 660
+python scripts/fault.py rrc-up
+```
+
+**EXPECTED** within ~10 s of `rrc-up` (`REPROBE_INTERVAL_MS`) the app reconnects by itself and
+video resumes. Nothing is probed while the app is backgrounded, after an explicit Disconnect, in
+simulation, or from the manual-entry and settings screens.
+
+- **PASS/FAIL:** FAIL if the connect screen stays put until "Scan again" is tapped.
+
+---
+
 ## PASS/FAIL — file summary
 
 | ID | Requires | Status |
@@ -228,3 +302,6 @@ screen (a battery bug that only shows up as a flat phone next morning).
 | L4 Disconnect mid-reconnect | A/B/C | not yet executed |
 | L5 cold start into a dead display | A/B/C | not yet executed |
 | L6 screen-on / immersive across an outage | A/B/C | not yet executed |
+| L7 stop/start inside the teardown window | A/B/C | not yet executed |
+| L8 display returns after give-up | A/B/C | not yet executed |
+| L9 short outage holds the picture; foreground retries | A/B/C | not yet executed |

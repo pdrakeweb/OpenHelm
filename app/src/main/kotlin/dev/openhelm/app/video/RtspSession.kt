@@ -110,6 +110,10 @@ class RtspSession(input: InputStream, output: OutputStream, private val url: Str
     }
 
     fun teardown() {
+        // No session was ever established (the attempt died in DESCRIBE or SETUP), so there is
+        // nothing to end — and a TEARDOWN with no Session header only earns an error response
+        // that this would then sit waiting to read.
+        if (sessionId == null) return
         try {
             if (interleavedStarted) sendRequest("TEARDOWN", contentBase, emptyArray())
             else request("TEARDOWN", contentBase)
@@ -179,8 +183,11 @@ class RtspSession(input: InputStream, output: OutputStream, private val url: Str
             val i = line.indexOf(':')
             if (i > 0) headers[line.substring(0, i).trim().lowercase()] = line.substring(i + 1).trim()
         }
-        val body = headers["content-length"]?.toIntOrNull()?.takeIf { it > 0 }
-            ?.let { String(readFully(it), Charsets.UTF_8) } ?: ""
+        val length = headers["content-length"]?.toIntOrNull() ?: 0
+        // An SDP is a few hundred bytes. A length in the megabytes is a corrupt or hostile
+        // response, and honouring it means allocating whatever a device on the Wi-Fi asks for.
+        if (length > MAX_BODY_BYTES) throw RtspException("Implausible Content-Length: $length")
+        val body = if (length > 0) String(readFully(length), Charsets.UTF_8) else ""
         return Response(status, headers, body)
     }
 
@@ -233,6 +240,11 @@ class RtspSession(input: InputStream, output: OutputStream, private val url: Str
                 contentLength = line.substring(i + 1).trim().toIntOrNull() ?: 0
             }
         }
+        if (contentLength > MAX_BODY_BYTES) throw RtspException("Implausible Content-Length: $contentLength")
         if (contentLength > 0) readFully(contentLength)
+    }
+
+    private companion object {
+        const val MAX_BODY_BYTES = 64 * 1024
     }
 }

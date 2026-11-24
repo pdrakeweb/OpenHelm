@@ -1,26 +1,28 @@
 package dev.openhelm.app.video
 
 import android.net.Network
+import android.os.SystemClock
 import android.util.Log
 import android.view.Surface
 import dev.openhelm.app.di.AppScope
+import dev.openhelm.app.net.SocketOwner
 import dev.openhelm.app.net.WifiNetworkBinder
 import dev.openhelm.app.net.WifiUnavailableException
 import dev.openhelm.protocol.MfdEndpoint
 import dev.openhelm.protocol.video.RtpH264Depacketizer
 import dev.openhelm.protocol.video.RtpPacket
-import java.io.IOException
 import dev.openhelm.protocol.video.containsIdr
+import java.io.IOException
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
-import java.net.Socket
 import java.net.SocketTimeoutException
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
@@ -92,6 +94,13 @@ data class VideoStats(
  *   overlay exists to prevent.
  * - *Video retries forever* (capped backoff), unlike the control channel. Losing video degrades
  *   the session to remote-only, which is a first-class mode; only losing *control* ends it.
+ * - *Streaming means frames are arriving.* Packets flowing is not the same thing: a decoder
+ *   waiting on a keyframe that never comes renders nothing while every counter upstream of it
+ *   looks healthy. A session that goes [RENDER_STALL_MS] without putting a frame on the glass is
+ *   failed and restarted, which is also the fastest way to be sent a fresh keyframe.
+ * - *A pipeline owns its sockets and its right to speak.* Every [start] gets its own [Run]; only
+ *   the current one may publish state, and each closes only sockets it opened. A pipeline still
+ *   unwinding after [stop] can neither close its successor's sockets nor report over it.
  */
 @Singleton
 class VideoPlayer @Inject constructor(
@@ -104,56 +113,118 @@ class VideoPlayer @Inject constructor(
     private val _stats = MutableStateFlow(VideoStats())
     val stats: StateFlow<VideoStats> = _stats.asStateFlow()
 
-    private var job: Job? = null
-
-    @Volatile
-    private var rtspSocket: Socket? = null
-
-    @Volatile
-    private var rtpSocket: DatagramSocket? = null
-
-    @Volatile
-    private var rtcpSocket: DatagramSocket? = null
-
-    /** Set by the decoder's error callback so the retry loop can report the true cause. */
-    @Volatile
-    private var decoderError: String? = null
-
-    /** True once PLAY returned 200 on this attempt — i.e. the server agreed to stream. */
-    @Volatile
-    private var reachedPlay = false
-
-    /** True once at least one access unit reached the decoder on this attempt. */
-    @Volatile
-    private var sawMedia = false
+    /**
+     * When the most recent frame reached the glass, as `SystemClock.elapsedRealtime()`, or null
+     * if none ever has.
+     *
+     * This is what lets the UI say how old a held picture is. When the link drops the last frame
+     * stays on the Surface, and for minutes afterwards it is still worth looking at — provided it
+     * says, in numbers, how stale it is. Deliberately **not** reset by [stop] or by a retry: the
+     * frame it describes is still on screen through both. `elapsedRealtime` rather than
+     * `nanoTime` because it keeps counting while the phone sleeps, and an age that under-reads
+     * after a nap in a pocket is wrong in the dangerous direction.
+     */
+    private val _lastFrameAtMs = MutableStateFlow<Long?>(null)
+    val lastFrameAtMs: StateFlow<Long?> = _lastFrameAtMs.asStateFlow()
 
     /**
-     * The transport the current pipeline attempt actually opened with — read by [stop] to decide
-     * whether it can unblock the receive loop without touching the RTSP control socket. See
-     * [stop]'s doc.
+     * Everything belonging to one [start]: the retry loop's job, the sockets it has open, and what
+     * its current attempt has learned.
+     *
+     * These used to be fields on the player, shared by every pipeline it ever ran. A pipeline that
+     * had been stopped but was still unwinding (sending its TEARDOWN, releasing its decoder) then
+     * shared them with the one started after it — and its cleanup closed the new pipeline's
+     * sockets. Stop-then-start within the teardown window is not exotic: it is what the screen
+     * turning off and straight back on does, and what toggling mirroring does.
      */
-    @Volatile
-    private var activeTransport = RtpTransport.UDP
+    private class Run {
+        lateinit var job: Job
 
+        /** The RTSP connection. Kept apart from [media] so [stop] can leave it open for TEARDOWN. */
+        val control = SocketOwner()
+
+        /** The RTP/RTCP datagram sockets (UDP transport only). */
+        val media = SocketOwner()
+
+        /** The transport the current attempt opened with — see [stop]. */
+        @Volatile
+        var transport = RtpTransport.UDP
+
+        /**
+         * Set by whatever *deliberately* failed the attempt by closing its sockets — a dead
+         * decoder, the frozen-picture watchdog — so the retry loop can report the true cause
+         * rather than the "Socket closed" it produced.
+         */
+        @Volatile
+        var failure: String? = null
+
+        /** True once PLAY returned 200 on this attempt — i.e. the server agreed to stream. */
+        @Volatile
+        var reachedPlay = false
+
+        /** True once at least one access unit reached the decoder on this attempt. */
+        @Volatile
+        var sawMedia = false
+
+        fun newAttempt(transport: RtpTransport) {
+            this.transport = transport
+            failure = null
+            reachedPlay = false
+            sawMedia = false
+        }
+
+        /** Fail the attempt in progress: closing the sockets is what unblocks its receive loop. */
+        fun fail(reason: String) {
+            if (failure == null) failure = reason
+            closeSockets()
+        }
+
+        fun closeSockets() {
+            media.closeAll()
+            control.closeAll()
+        }
+
+        fun shutdown() {
+            media.shutdown()
+            control.shutdown()
+        }
+    }
+
+    /** The pipeline that currently owns [state] and [stats], or null. Guarded by `this`. */
+    private var current: Run? = null
+
+    /**
+     * The most recently launched pipeline, *including* one already stopped. The next pipeline
+     * waits for it to finish — TEARDOWN sent, decoder released — before negotiating its own
+     * session, so the display never sees two sessions from this phone and the decoder never finds
+     * the Surface still attached to its predecessor. Guarded by `this`.
+     */
+    private var lastJob: Job? = null
+
+    @Synchronized
     fun start(endpoint: MfdEndpoint, surface: Surface, transport: RtpTransport) {
-        val previous = job
-        previous?.cancel()
         // Unblock whatever the previous pipeline is doing — cancellation cannot interrupt a
         // blocking read, and an RTSP server that accepted the connection and then went quiet
-        // would otherwise stall the join below indefinitely.
-        closeSockets()
-        job = scope.launch(Dispatchers.IO) {
-            previous?.join()
+        // would otherwise stall the join below.
+        current?.let {
+            it.job.cancel()
+            it.shutdown()
+        }
+        val previous = lastJob
+        val run = Run()
+        // Lazy so `current` is set before the loop's first statement can ask whether it is current.
+        run.job = scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
+            // Bounded: the predecessor's sockets are closed (or about to be — see stop()), so the
+            // only thing that could hold it past this is a wedged MediaCodec, and video must not
+            // stay down for the life of the process because of one.
+            if (previous != null) withTimeoutOrNull(PREDECESSOR_WAIT_MS) { previous.join() }
             var attempt = 0
             var active = transport
             while (currentCoroutineContext().isActive) {
-                activeTransport = active
-                decoderError = null
-                reachedPlay = false
-                sawMedia = false
-                _state.value = VideoState.Connecting
+                run.newAttempt(active)
+                publish(run, VideoState.Connecting)
                 val reason = try {
-                    runPipeline(endpoint, surface, active)
+                    runPipeline(run, endpoint, surface, active)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: WifiUnavailableException) {
@@ -164,9 +235,15 @@ class VideoPlayer @Inject constructor(
                     Log.w(TAG, "Video pipeline attempt failed", e)
                     e.message ?: e.javaClass.simpleName
                 }
-                closeSockets()
-                attempt++
+                run.closeSockets()
                 if (!currentCoroutineContext().isActive) return@launch
+
+                // An attempt that put media through was a working stream that has now broken, not
+                // another failure in a row: start the backoff over. Without this the counter only
+                // ever grew, so after a few blips across a long passage every later one-second
+                // dropout cost the full maximum backoff before video even tried to come back.
+                if (run.sawMedia) attempt = 0
+                attempt++
 
                 // **Transport fallback.** A session that negotiates cleanly and then delivers
                 // nothing is the signature failure of asking for the wrong transport: a real
@@ -175,18 +252,23 @@ class VideoPlayer @Inject constructor(
                 // persisted from testing against the simulator will happily brick video against
                 // real hardware with no visible cause. So if we got as far as PLAY and no media
                 // followed, try the other transport rather than repeating the same failure.
-                if (reachedPlay && !sawMedia) {
+                if (run.reachedPlay && !run.sawMedia) {
                     active = if (active == RtpTransport.UDP) RtpTransport.TCP_INTERLEAVED
                     else RtpTransport.UDP
                     Log.w(TAG, "No media after PLAY — retrying with $active")
                 }
 
-                // A decoder failure closed the sockets, so `reason` is the misleading "Socket
-                // closed" — the recorded decoder error is the truth worth showing.
-                _state.value = VideoState.Failed(decoderError ?: reason)
+                // A deliberate failure closed the sockets, so `reason` is the misleading "Socket
+                // closed" — the recorded cause is the truth worth showing.
+                publish(run, VideoState.Failed(run.failure ?: reason))
                 delay((RETRY_BACKOFF_MS * attempt).coerceAtMost(MAX_BACKOFF_MS))
             }
         }
+        current = run
+        lastJob = run.job
+        _state.value = VideoState.Connecting
+        _stats.value = VideoStats()
+        run.job.start()
     }
 
     /**
@@ -203,54 +285,67 @@ class VideoPlayer @Inject constructor(
      * fight a server-side session already in an unknown state instead of a clean one.
      *
      * The fix closes only the UDP sockets first. RTP over UDP keeps the media path entirely
-     * separate from the RTSP control connection, so closing just [rtpSocket]/[rtcpSocket] unblocks
-     * [receiveUdp]'s blocked `receive()` — the actual reason `stop()` ever needed to close anything
-     * synchronously — without touching the socket TEARDOWN needs. The cancelled pipeline then dies
-     * with an ordinary `IOException`, unwinds through its own `finally`, and sends TEARDOWN on a
-     * control socket that is still open. Only once that has had a bounded chance to happen
-     * ([TEARDOWN_GRACE_MS]) does this force-close everything, in case the pipeline is stuck
+     * separate from the RTSP control connection, so shutting down just the [Run.media] sockets
+     * unblocks [receiveUdp]'s blocked `receive()` — the actual reason `stop()` ever needed to close
+     * anything synchronously — without touching the socket TEARDOWN needs. The cancelled pipeline
+     * then dies with an ordinary `IOException`, unwinds through its own `finally`, and sends
+     * TEARDOWN on a control socket that is still open. Only once that has had a bounded chance to
+     * happen ([TEARDOWN_GRACE_MS]) does this force-close everything, in case the pipeline is stuck
      * somewhere TEARDOWN cannot reach (a dead peer, a decoder wedged in [H264Decoder.stop]).
      *
      * TCP-interleaved carries RTP *inside* the control connection, so there is no separate socket
      * to close for it — that transport only ever talks to the project's own simulator, never a real
      * display, so it keeps the old close-everything-at-once behaviour.
      */
+    @Synchronized
     fun stop() {
-        val previous = job
-        job = null
-        // Optimistic UI update: the caller (a Disconnect tap, backgrounding, turning mirroring
-        // off) should see Idle immediately, not after however long the graceful teardown below
-        // takes.
+        val run = current
+        current = null
+        // Immediate, and final: with `current` cleared under the lock, the stopped pipeline can no
+        // longer publish anything over this, however long its teardown takes.
         _state.value = VideoState.Idle
         _stats.value = VideoStats()
-        if (previous == null) {
-            closeSockets()
-            return
-        }
-        if (activeTransport == RtpTransport.UDP) {
-            rtpSocket?.close()
-            rtcpSocket?.close()
-        }
-        previous.cancel()
+        if (run == null) return
+        run.job.cancel()
+        if (run.transport == RtpTransport.UDP) run.media.shutdown() else run.shutdown()
         scope.launch {
-            withTimeoutOrNull(TEARDOWN_GRACE_MS) { previous.join() }
-            closeSockets()
-            // The cancelled loop may still write a final Failed on its way out (its isActive check
-            // and the write are not atomic). Re-assert Idle once it has fully unwound, unless a new
-            // start() owns the state by then.
-            if (job == null) {
-                _state.value = VideoState.Idle
-                _stats.value = VideoStats()
-            }
+            withTimeoutOrNull(TEARDOWN_GRACE_MS) { run.job.join() }
+            run.shutdown()
+        }
+    }
+
+    /** Publish on behalf of [run] — only while it is still the current pipeline. */
+    private fun publish(run: Run, next: VideoState) {
+        synchronized(this) {
+            if (current === run) _state.value = next
+        }
+    }
+
+    /** A frame from [run] has just been rendered. */
+    private fun noteFrame(run: Run) {
+        synchronized(this) {
+            if (current === run) _lastFrameAtMs.value = SystemClock.elapsedRealtime()
+        }
+    }
+
+    private fun publish(run: Run, next: VideoStats) {
+        synchronized(this) {
+            if (current === run) _stats.value = next
         }
     }
 
     /** Runs until the stream fails; returns the reason. */
-    private suspend fun runPipeline(endpoint: MfdEndpoint, surface: Surface, transport: RtpTransport): String {
+    private suspend fun runPipeline(
+        run: Run,
+        endpoint: MfdEndpoint,
+        surface: Surface,
+        transport: RtpTransport,
+    ): String {
         val network = wifi.bind()
 
-        val socket = network.socketFactory.createSocket()
-        rtspSocket = socket
+        // Adopted before anything can block on it — and refused outright if stop() already
+        // happened while this was waiting for Wi-Fi.
+        val socket = run.control.adopt(network.socketFactory.createSocket())
         socket.tcpNoDelay = true
         // Negotiation must never block indefinitely: a server that accepts the TCP connection
         // and then goes quiet would otherwise hang DESCRIBE's read forever — beyond the reach of
@@ -269,13 +364,15 @@ class VideoPlayer @Inject constructor(
 
         var discontinuities = 0L
         val decoder = H264Decoder(
-            onFirstFrame = { _state.value = VideoState.Streaming },
+            onFirstFrame = {
+                noteFrame(run)
+                publish(run, VideoState.Streaming)
+            },
             onError = { message ->
                 // A dead decoder must fail the pipeline. Closing the sockets fails the receive
                 // loop, which restarts the pipeline through the ordinary retry path — otherwise
                 // the state stays Streaming over a frozen frame and nobody is told.
-                decoderError = "Video decoder failed — $message"
-                closeSockets()
+                run.fail("Video decoder failed — $message")
             },
         )
         val depacketizer = RtpH264Depacketizer(onDiscontinuity = {
@@ -290,13 +387,20 @@ class VideoPlayer @Inject constructor(
             when (transport) {
                 RtpTransport.UDP -> {
                     val (rtp, rtcp) = openUdpPair(network)
-                    rtpSocket = rtp
-                    rtcpSocket = rtcp
+                    try {
+                        run.media.adopt(rtp)
+                        run.media.adopt(rtcp)
+                    } catch (e: IOException) {
+                        // Stopped while opening: whichever was not adopted is still ours to close.
+                        rtp.close()
+                        rtcp.close()
+                        throw e
+                    }
                     session.setupUdp(track.control, rtp.localPort)
                     Log.i(TAG, "RTSP SETUP ok (udp): session=${session.sessionId} " +
                         "timeout=${session.timeoutSeconds}s clientPorts=${rtp.localPort}-${rtp.localPort + 1}")
                     session.play()
-                    reachedPlay = true
+                    run.reachedPlay = true
                     Log.i(TAG, "RTSP PLAY ok — awaiting RTP on udp/${rtp.localPort} from $displayAddress")
 
                     // The RTCP socket is held open for the life of the session. It used to be
@@ -307,29 +411,29 @@ class VideoPlayer @Inject constructor(
                     // not one we can interrogate. Holding the port costs one idle socket.
                     coroutineScope {
                         launch { keepaliveLoop(session) }
-                        launch { statsLoop(decoder, transport, depacketizer) { discontinuities } }
-                        receiveUdp(rtp, displayAddress, track.payloadType, depacketizer, decoder)
+                        launch { statsLoop(run, decoder, transport, depacketizer) { discontinuities } }
+                        receiveUdp(run, rtp, displayAddress, track.payloadType, depacketizer, decoder)
                     }
                 }
 
                 RtpTransport.TCP_INTERLEAVED -> {
                     session.setupInterleaved(track.control)
                     session.play()
-                    reachedPlay = true
+                    run.reachedPlay = true
                     // From here the socket carries the media stream itself: a longer silence
                     // means the stream stalled, and the timeout turns that into a visible
                     // failure instead of an eternal freeze.
                     socket.soTimeout = RTP_STALL_TIMEOUT_MS
                     coroutineScope {
                         launch { keepaliveLoop(session) }
-                        launch { statsLoop(decoder, transport, depacketizer) { discontinuities } }
+                        launch { statsLoop(run, decoder, transport, depacketizer) { discontinuities } }
                         launch(Dispatchers.IO) {
                             session.readInterleaved { datagram ->
                                 val packet = RtpPacket.parse(datagram)
                                 if (packet != null && packet.payloadType == track.payloadType) {
                                     depacketizer.feed(packet)?.let { au ->
-                                        if (!sawMedia) {
-                                            sawMedia = true
+                                        if (!run.sawMedia) {
+                                            run.sawMedia = true
                                             Log.i(TAG, "First access unit assembled (interleaved): " +
                                                 "${au.size} bytes")
                                         }
@@ -346,14 +450,21 @@ class VideoPlayer @Inject constructor(
             return e.message ?: e.javaClass.simpleName
         } finally {
             decoder.stop()
+            // TEARDOWN waits for its answer, and on the way out of a *failed* stream the likeliest
+            // reason for the failure is that the display is no longer there to give one. Left on
+            // the negotiation timeout, every retry of a dead link sat here for a further
+            // [RTSP_RESPONSE_TIMEOUT_MS] before it could even start backing off.
             try {
-                session.teardown()
+                socket.soTimeout = TEARDOWN_RESPONSE_TIMEOUT_MS
             } catch (_: IOException) {
+                // Already closed; teardown() below will find that out for itself.
             }
+            session.teardown()
         }
     }
 
     private suspend fun receiveUdp(
+        run: Run,
         socket: DatagramSocket,
         expectedSource: InetAddress,
         payloadType: Int,
@@ -367,22 +478,23 @@ class VideoPlayer @Inject constructor(
         var fromOtherSource = 0L
         var loggedFirst = false
         var loggedForeign: InetAddress? = null
+        var lastFromDisplayNs = System.nanoTime()
+        // Say which of the two silences this is. "Nothing at all" and "packets arriving but all
+        // rejected" have completely different causes, and the difference was previously
+        // invisible — the loop simply produced no video either way.
+        fun stalled() = IOException(
+            if (received == 0L && fromOtherSource == 0L) {
+                "No video data for ${RTP_STALL_TIMEOUT_MS / 1000}s"
+            } else {
+                "Video stalled after $received packets ($fromOtherSource from another source)"
+            },
+        )
         while (true) {
             currentCoroutineContext().ensureActive()
             try {
                 socket.receive(datagram)
             } catch (e: SocketTimeoutException) {
-                // Say which of the two silences this is. "Nothing at all" and "packets arriving
-                // but all rejected" have completely different causes, and the difference was
-                // previously invisible — the loop simply produced no video either way.
-                throw IOException(
-                    if (received == 0L && fromOtherSource == 0L) {
-                        "No video data for ${RTP_STALL_TIMEOUT_MS / 1000}s"
-                    } else {
-                        "Video stalled after $received packets " +
-                            "($fromOtherSource from another source)"
-                    },
-                )
+                throw stalled()
             }
             // DatagramPacket carries the PREVIOUS receive's length into the next one, so without
             // this reset each receive can take no more bytes than the last packet did and the
@@ -404,9 +516,16 @@ class VideoPlayer @Inject constructor(
                     loggedForeign = datagram.address
                     Log.w(TAG, "Ignoring RTP from ${datagram.address} — expected $expectedSource")
                 }
+                // The socket timeout measures silence on the *port*, and a rejected packet is not
+                // silence: anything else on the Wi-Fi sending here would keep a dead stream
+                // looking alive indefinitely. The stall that matters is the display's.
+                if (System.nanoTime() - lastFromDisplayNs >= RTP_STALL_TIMEOUT_MS * 1_000_000L) {
+                    throw stalled()
+                }
                 continue
             }
             received++
+            lastFromDisplayNs = System.nanoTime()
             if (!loggedFirst) {
                 loggedFirst = true
                 Log.i(TAG, "First RTP packet: $length bytes from ${datagram.address}")
@@ -414,8 +533,8 @@ class VideoPlayer @Inject constructor(
             val packet = RtpPacket.parse(datagram.data, length) ?: continue
             if (packet.payloadType != payloadType) continue
             depacketizer.feed(packet)?.let { au ->
-                if (!sawMedia) {
-                    sawMedia = true
+                if (!run.sawMedia) {
+                    run.sawMedia = true
                     Log.i(TAG, "First access unit assembled: ${au.size} bytes (idr=${containsIdr(au)})")
                 }
                 // Stamp the frame the instant it is complete here. Everything after this point is
@@ -433,15 +552,38 @@ class VideoPlayer @Inject constructor(
     }
 
     private suspend fun statsLoop(
+        run: Run,
         decoder: H264Decoder,
         transport: RtpTransport,
         depacketizer: RtpH264Depacketizer,
         discontinuities: () -> Long,
     ): Nothing {
         var ticks = 0
+        var lastRendered = 0L
+        var lastProgressNs = System.nanoTime()
         while (true) {
             val d = decoder.stats
-            _stats.value = VideoStats(
+
+            // The frozen-picture watchdog. The receive loop only notices *silence*; this notices
+            // a stream that keeps arriving and never becomes a picture — a decoder waiting, after
+            // one lost packet, for a keyframe the display is in no hurry to send, or one that has
+            // quietly stopped producing output. Either way the last frame sits on the glass
+            // looking live. Failing the attempt puts the honest overlay up and renegotiates,
+            // which is also what gets a new keyframe sent.
+            val now = System.nanoTime()
+            if (d.rendered != lastRendered) {
+                lastRendered = d.rendered
+                lastProgressNs = now
+                // Once a second is plenty: this feeds a readout in whole seconds.
+                noteFrame(run)
+            } else if (run.sawMedia && now - lastProgressNs >= RENDER_STALL_MS * 1_000_000L) {
+                Log.w(TAG, "No frame rendered for ${RENDER_STALL_MS / 1000}s — restarting video " +
+                    "(${depacketizer.diagnostics()})")
+                run.fail("Picture frozen for ${RENDER_STALL_MS / 1000}s")
+                lastProgressNs = now
+            }
+
+            publish(run, VideoStats(
                 fps = d.fps,
                 rendered = d.rendered,
                 dropped = d.dropped,
@@ -450,7 +592,7 @@ class VideoPlayer @Inject constructor(
                 decodeMs = d.decodeMs,
                 latencyMs = d.latencyMs,
                 transport = transport,
-            )
+            ))
             // Say what the far end is doing, not just what we ended up with. A rising gap count
             // with nothing decoded has several possible causes that look identical on screen, and
             // the depacketizer is the only layer that can tell them apart.
@@ -502,18 +644,6 @@ class VideoPlayer @Inject constructor(
         throw lastError ?: IOException("Could not allocate an RTP port pair")
     }
 
-    private fun closeSockets() {
-        try {
-            rtspSocket?.close()
-        } catch (_: IOException) {
-        }
-        rtspSocket = null
-        rtpSocket?.close()
-        rtpSocket = null
-        rtcpSocket?.close()
-        rtcpSocket = null
-    }
-
     private companion object {
         const val TAG = "OpenHelm"
         const val CONNECT_TIMEOUT_MS = 15_000
@@ -528,6 +658,22 @@ class VideoPlayer @Inject constructor(
          * that a genuinely dead peer does not make backgrounding feel sluggish.
          */
         const val TEARDOWN_GRACE_MS = 2_000L
+
+        /**
+         * How long TEARDOWN itself waits for the display's answer. Inside [TEARDOWN_GRACE_MS], so a
+         * stop() normally ends by the pipeline finishing on its own rather than being force-closed.
+         */
+        const val TEARDOWN_RESPONSE_TIMEOUT_MS = 1_500
+
+        /** How long a new pipeline waits for the one before it to finish unwinding. */
+        const val PREDECESSOR_WAIT_MS = 5_000L
+
+        /**
+         * How long media may keep arriving without a single frame reaching the glass before the
+         * session is restarted. Longer than any keyframe interval a live encoder plausibly uses,
+         * so ordinary loss recovery (skip to the next keyframe) always gets its chance first.
+         */
+        const val RENDER_STALL_MS = 15_000L
 
         /**
          * Big enough to absorb an IDR burst arriving between two receive() calls, small enough

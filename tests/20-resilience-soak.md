@@ -82,7 +82,7 @@ the connect screen → recover on demand. This is the heaviest cycle the app has
 ```bash
 for i in $(seq 1 10); do
   python scripts/fault.py net-down
-  sleep 75                                   # past the ~30-60 s give-up
+  sleep 660                                  # past the 10 min give-up for an established session
   python scripts/fault.py net-up
   sleep 5
   tap_text "Scan again"
@@ -187,6 +187,14 @@ Recorded here so a soak run does not "discover" it as a new defect.
 fires once a write actually *blocks*, which requires the socket send buffer to fill: thousands of
 11-byte control frames. This is inherent to a write-only protocol with no heartbeat; the MFD never
 speaks on the control socket, so there is nothing to time out on.
+
+**Scope note (2026-11-24):** this limitation is specifically a display whose *application* has
+hung while its TCP stack keeps acknowledging. A display that is **gone** — powered off, unplugged,
+out of range with the phone still associated to a separate access point — is a different case and
+is now detected in ~10 s by `TcpLiveness` (short keepalive timing plus `TCP_USER_TIMEOUT`), where
+it previously showed `Connected` for anything from 15 minutes to 2 hours. `stall-on` does not
+exercise that path; pulling the emulator host's network cable, or `iptables -A INPUT -p tcp
+--dport 50000 -j DROP` on it, does.
 
 **Verified 2026-07-28**: 8 frames sent during a stall all arrived with a single timestamp on
 release. Two mitigations are recorded in [16](16-resilience-faults.md); neither is implemented, and
