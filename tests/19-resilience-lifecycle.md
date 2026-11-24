@@ -196,7 +196,7 @@ a phantom remote screen.
 
 ## L6 — Screen-on and immersive across an outage
 
-**STEPS** with a session live, `python scripts/fault.py net-down`; wait for the give-up.
+**STEPS** with a session live, `python scripts/fault.py net-down`; wait for the give-up (10 min).
 
 **EXPECTED**
 
@@ -215,6 +215,31 @@ a phantom remote screen.
 
 **PASS** held during the session, released after. **FAIL** if the flag persists on the connect
 screen (a battery bug that only shows up as a flat phone next morning).
+
+---
+
+## L9 — Short outage keeps the picture, and returning to the app retries at once
+
+**STEPS**
+
+```bash
+python scripts/fault.py net-down
+sleep 180                                    # three minutes: well inside the 10 min hold
+"$ADB" shell input keyevent KEYCODE_HOME     # leave the app…
+sleep 20
+python scripts/fault.py net-up
+"$ADB" shell monkey -p dev.openhelm.app 1    # …and come back
+```
+
+**EXPECTED**
+
+1. Throughout the outage the remote screen stays up with the last picture visible under
+   `VIDEO DELAYED — NOT LIVE`, and `Picture is 2 min 59 s old` (or thereabouts) counting up.
+2. On returning to the app, control reconnects within ~1–2 s — not after the remainder of a 15 s
+   backoff — and the banner clears as soon as a new frame renders.
+
+- **PASS/FAIL:** FAIL if the app lands on the connect screen inside 10 min, if the age is missing
+  or stops counting, or if the reconnect waits out a backoff after the app is foregrounded.
 
 ---
 
@@ -253,9 +278,9 @@ Repeat by toggling Mirror → Remote only → Mirror as fast as the control allo
 
 ```bash
 python scripts/fault.py rrc-down
-# wait for the app to give up (~30–60 s) and land on the connect screen;
-# wait for the scan to report nothing found; do NOT touch the phone
-sleep 90
+# wait for the app to give up (10 min for an established session) and land on the
+# connect screen; wait for the scan to report nothing found; do NOT touch the phone
+sleep 660
 python scripts/fault.py rrc-up
 ```
 
@@ -279,3 +304,4 @@ simulation, or from the manual-entry and settings screens.
 | L6 screen-on / immersive across an outage | A/B/C | not yet executed |
 | L7 stop/start inside the teardown window | A/B/C | not yet executed |
 | L8 display returns after give-up | A/B/C | not yet executed |
+| L9 short outage holds the picture; foreground retries | A/B/C | not yet executed |

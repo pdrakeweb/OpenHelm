@@ -82,7 +82,7 @@ the connect screen → recover on demand. This is the heaviest cycle the app has
 ```bash
 for i in $(seq 1 10); do
   python scripts/fault.py net-down
-  sleep 75                                   # past the ~30-60 s give-up
+  sleep 660                                  # past the 10 min give-up for an established session
   python scripts/fault.py net-up
   sleep 5
   tap_text "Scan again"

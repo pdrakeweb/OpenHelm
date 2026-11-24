@@ -60,7 +60,8 @@ The display leaves the network; every reconnect is refused.
 |---|---|
 | **EXPECT** during | `Reconnecting · the display refused the connection`, panel dimmed |
 | **EXPECT** key taps | produce **no** RRC frames (positive control: the same tap logs frames while connected) |
-| **EXPECT** give-up | after ~5 attempts / ~30 s of backoff, the session ends by itself |
+| **EXPECT** hold | the session does **not** end: the remote screen stays, and in Mirror the last picture stays under `VIDEO DELAYED — NOT LIVE` with `Picture is … old` counting up once a second |
+| **EXPECT** give-up | only after **10 min** of outage (`OUTAGE_GIVE_UP_MS`) does the session end by itself. (Changed 2026-11-24 from ~30 s; a session that never connected still gives up after 5 attempts.) |
 | **EXPECT** after | connect screen: ring reads `Scan again`, `Connection lost`, and the reason underneath; the remembered display is offered as a one-tap button |
 
 ### S3 — Recovery (`rrc-up` + Scan again)

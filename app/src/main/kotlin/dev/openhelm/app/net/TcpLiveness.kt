@@ -7,7 +7,12 @@ import android.util.Log
 import java.net.Socket
 
 /**
- * Makes the kernel notice a dead peer in seconds rather than minutes-to-hours.
+ * Makes the kernel notice a dead peer in tens of seconds rather than minutes-to-hours.
+ *
+ * Deliberately not hair-trigger: a radio fade of a few seconds is routine on a boat and TCP rides
+ * it out unaided, so the thresholds sit around twenty seconds. Tripping costs nothing visible but
+ * a "Reconnecting" status — the picture stays up — while never tripping means a session that
+ * cannot recover, because nothing ever opens a fresh socket to a display that has come back.
  *
  * The control protocol is one-way: the display never sends a byte, and there is no ping frame to
  * borrow. That leaves two silent failures when the far end vanishes without closing the socket
@@ -43,10 +48,10 @@ internal object TcpLiveness {
      */
     fun enable(
         socket: Socket,
-        idleSeconds: Int = 5,
-        intervalSeconds: Int = 2,
+        idleSeconds: Int = 10,
+        intervalSeconds: Int = 3,
         probes: Int = 3,
-        userTimeoutMs: Int = 10_000,
+        userTimeoutMs: Int = 20_000,
     ): Boolean = try {
         // A dup of the socket's descriptor: options set through it land on the same underlying
         // socket, and closing the dup leaves the original open.

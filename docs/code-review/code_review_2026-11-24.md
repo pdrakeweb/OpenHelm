@@ -57,14 +57,14 @@ link waits for the default keepalive (2 h). This applies whenever the display di
 the phone losing Wi-Fi: display powered off behind a separate access point, cable pulled, router
 rebooted.
 
-Fix: `TcpLiveness` sets `TCP_KEEPIDLE/INTVL/CNT` (5 s / 2 s / 3) and `TCP_USER_TIMEOUT` (10 s) on
+Fix: `TcpLiveness` sets `TCP_KEEPIDLE/INTVL/CNT` (10 s / 3 s / 3) and `TCP_USER_TIMEOUT` (20 s) on
 the control socket. Best-effort; a refusal leaves the old behaviour.
 
 Not covered: a display whose application hangs while its kernel keeps acknowledging
 (`tests/20` K6). Nothing short of a protocol-level reply can detect that.
 
-Behaviour change to expect: an outage longer than ~10 s now shows `Reconnecting` where it used to
-sit silently on a zombie socket.
+Behaviour change to expect: an outage longer than ~20 s now shows `Reconnecting` where it used to
+sit silently on a zombie socket. The picture is not affected — see F16.
 
 ### F4 — Every retry of a dead video link waits 15 s for a TEARDOWN answer (Medium) — Fixed
 
@@ -146,12 +146,27 @@ the whole search; it is now retried twice.
 
 A response could ask for a 2 GB allocation. Capped at 64 KiB.
 
+### F16 — A short outage threw away the picture (High) — Fixed, UI part not compiled
+
+The control loop gave an established session up after five attempts (~30–60 s), which returns to
+the connect screen and destroys the pane holding the last frame. On a sailboat a chart a few
+minutes old is still a useful reference, provided it says how old it is.
+
+- An established session now retries for 10 min (`OUTAGE_GIVE_UP_MS`) before giving up. A
+  connection that never worked keeps the five-attempt budget.
+- The stale-picture banner shows the picture's age, counting up (`Picture is 2 min 05 s old`),
+  from a last-rendered-frame timestamp that survives retries and stop/start.
+- Returning to the foreground abandons the current backoff or in-flight connect and retries
+  immediately (`RrcClient.retryNow`). This closes the former open item O3 for the foreground case;
+  nothing yet reacts to Wi-Fi itself coming back.
+
 ## Open items, not changed
 
 | # | Item | Why it was left |
 |---|---|---|
+| O6 | The stale-picture scrim is 60 % black. Now that the picture is deliberately held for minutes as a reference, that may be heavier than wanted in daylight. | A judgement about the safety treatment; left as designed. |
 | O1 | Transport fallback is symmetric: UDP with no media falls back to TCP-interleaved against a real display, which `MainViewModel.transportFor` otherwise goes out of its way to prevent. | Costs one wasted 10 s cycle per alternation; changing it alters documented simulator behaviour. Worth a decision. |
 | O2 | After a sequence gap the depacketizer resumes mid-frame. A multi-slice keyframe that lost only its first slice would be emitted and decoded torn. | Depends on whether the display's encoder uses multiple slices; unknown. |
-| O3 | Reconnect backoff is not interrupted when the app returns to the foreground or Wi-Fi comes back; the user can wait out up to 15 s. | Small, and wants a design for "network available" signalling rather than a patch. |
+| O3 | Reconnect backoff is not interrupted when Wi-Fi comes back while the app stays in the foreground; the wait is up to 15 s. (The foreground case is fixed — F16.) | Wants a `NetworkCallback`-driven signal rather than a patch. |
 | O4 | `gradlew` is committed without the executable bit (the release workflow `chmod`s it; the README's `./gradlew` commands fail on a fresh clone). | One-line fix, unrelated to this change. |
 | O5 | `RrcClient`, `VideoPlayer` and `MainViewModel` have no automated tests because they construct Android types directly. The throwaway harness used for this review shows what an interface over `WifiNetworkBinder` and the decoder would buy. | Refactor, not a fix. |

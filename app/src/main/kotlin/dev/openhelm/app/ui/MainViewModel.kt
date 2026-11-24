@@ -59,6 +59,9 @@ class MainViewModel @Inject constructor(
     val videoState: StateFlow<VideoState> = player.state
     val videoStats: StateFlow<VideoStats> = player.stats
 
+    /** When the picture on screen was last refreshed (`elapsedRealtime`), for its age readout. */
+    val videoLastFrameAtMs: StateFlow<Long?> = player.lastFrameAtMs
+
     /** Displays connected to before, most-recent first, for one-tap reconnect and naming. */
     val remembered: StateFlow<List<RememberedDisplay>> =
         store.rememberedDisplays.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -686,6 +689,10 @@ class MainViewModel @Inject constructor(
     /** The app is visible again. Undoes exactly what [onBackgrounded] did, nothing more. */
     fun onForegrounded() {
         foreground = true
+        // If control is sitting out a backoff (or a connect attempt begun while the radio was
+        // asleep), now — screen on, Wi-Fi just back — is the moment to try, not fifteen seconds
+        // from now. Video needs no equivalent: it is restarted from scratch just below.
+        rrc.retryNow()
         if (videoPausedForBackground) {
             videoPausedForBackground = false
             val surface = lastSurface

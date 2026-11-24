@@ -1,6 +1,7 @@
 package dev.openhelm.app.video
 
 import android.net.Network
+import android.os.SystemClock
 import android.util.Log
 import android.view.Surface
 import dev.openhelm.app.di.AppScope
@@ -111,6 +112,20 @@ class VideoPlayer @Inject constructor(
 
     private val _stats = MutableStateFlow(VideoStats())
     val stats: StateFlow<VideoStats> = _stats.asStateFlow()
+
+    /**
+     * When the most recent frame reached the glass, as `SystemClock.elapsedRealtime()`, or null
+     * if none ever has.
+     *
+     * This is what lets the UI say how old a held picture is. When the link drops the last frame
+     * stays on the Surface, and for minutes afterwards it is still worth looking at — provided it
+     * says, in numbers, how stale it is. Deliberately **not** reset by [stop] or by a retry: the
+     * frame it describes is still on screen through both. `elapsedRealtime` rather than
+     * `nanoTime` because it keeps counting while the phone sleeps, and an age that under-reads
+     * after a nap in a pocket is wrong in the dangerous direction.
+     */
+    private val _lastFrameAtMs = MutableStateFlow<Long?>(null)
+    val lastFrameAtMs: StateFlow<Long?> = _lastFrameAtMs.asStateFlow()
 
     /**
      * Everything belonging to one [start]: the retry loop's job, the sockets it has open, and what
@@ -306,6 +321,13 @@ class VideoPlayer @Inject constructor(
         }
     }
 
+    /** A frame from [run] has just been rendered. */
+    private fun noteFrame(run: Run) {
+        synchronized(this) {
+            if (current === run) _lastFrameAtMs.value = SystemClock.elapsedRealtime()
+        }
+    }
+
     private fun publish(run: Run, next: VideoStats) {
         synchronized(this) {
             if (current === run) _stats.value = next
@@ -342,7 +364,10 @@ class VideoPlayer @Inject constructor(
 
         var discontinuities = 0L
         val decoder = H264Decoder(
-            onFirstFrame = { publish(run, VideoState.Streaming) },
+            onFirstFrame = {
+                noteFrame(run)
+                publish(run, VideoState.Streaming)
+            },
             onError = { message ->
                 // A dead decoder must fail the pipeline. Closing the sockets fails the receive
                 // loop, which restarts the pipeline through the ordinary retry path — otherwise
@@ -549,6 +574,8 @@ class VideoPlayer @Inject constructor(
             if (d.rendered != lastRendered) {
                 lastRendered = d.rendered
                 lastProgressNs = now
+                // Once a second is plenty: this feeds a readout in whole seconds.
+                noteFrame(run)
             } else if (run.sawMedia && now - lastProgressNs >= RENDER_STALL_MS * 1_000_000L) {
                 Log.w(TAG, "No frame rendered for ${RENDER_STALL_MS / 1000}s — restarting video " +
                     "(${depacketizer.diagnostics()})")

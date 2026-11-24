@@ -33,6 +33,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Connection lifecycle, written only by [RrcClient], observed by the UI. */
 sealed interface ConnectionState {
@@ -64,11 +65,14 @@ sealed interface ConnectionState {
  *    catch is deliberately `Exception`, not `IOException`: the one time this mattered, the escape
  *    was an `IllegalArgumentException` from an out-of-range port, and it froze the app at
  *    "Connecting" until the process was killed.
- * 2. *Retries are bounded.* After [MAX_ATTEMPTS] consecutive failures the connection is treated as
- *    permanently broken: the loop records the reason (readable once via [consumeLoss]), returns
- *    the state to [ConnectionState.Idle], and exits — which hands the user back to the connect
- *    screen, where scanning resumes. Retrying a dead address forever just pins the user to a
- *    reconnect screen that will never deliver.
+ * 2. *Retries are bounded — generously, once a session has worked.* A connection that has never
+ *    been established gets [MAX_ATTEMPTS] tries: a wrong address should hand the user back to the
+ *    connect screen promptly. A session that *was* working is a different thing. Giving it up
+ *    takes the remote screen away, and with it the last chart picture — which on a sailboat is
+ *    still a useful reference minutes after the link drops, as long as it is plainly marked as
+ *    old. So an established session keeps retrying for [OUTAGE_GIVE_UP_MS] before the loop
+ *    records the reason (readable once via [consumeLoss]), returns to [ConnectionState.Idle] and
+ *    exits.
  * 3. *A stalled peer is a failure.* The MFD never speaks on this socket, so the reader only
  *    detects an orderly close; a peer that simply vanishes (display powered off behind a separate
  *    access point, phone walked out of range) is invisible to plain TCP for minutes to hours.
@@ -186,6 +190,30 @@ class RrcClient @Inject constructor(
         null
     }
 
+    /** Conflated: any number of [retryNow] calls during one wait amount to one retry. */
+    private val retrySignal = Channel<Unit>(Channel.CONFLATED)
+
+    /**
+     * Stop waiting and try again immediately. A no-op while connected or idle.
+     *
+     * The backoff exists to avoid hammering a display that is down; it knows nothing about *why*
+     * a retry might suddenly be worth making. The app returning to the foreground is exactly such
+     * a reason — the phone has usually just woken, its Wi-Fi has just re-associated, and the user
+     * is looking at the screen — and without this they watched "Reconnecting" for up to
+     * [MAX_BACKOFF_MS] (or the rest of a connect attempt begun while the radio was still asleep)
+     * before anything happened.
+     *
+     * Also abandons a connect attempt already in flight: one started before whatever changed is
+     * as likely to be waiting on a route that no longer exists as to be about to succeed.
+     */
+    @Synchronized
+    fun retryNow() {
+        val link = current ?: return
+        if (_state.value is ConnectionState.Connected) return
+        retrySignal.trySend(Unit)
+        link.sockets.closeAll()
+    }
+
     /** Stop the loop and return to [ConnectionState.Idle]. */
     @Synchronized
     fun disconnect() {
@@ -231,8 +259,13 @@ class RrcClient @Inject constructor(
         queue: Channel<ByteArray>,
     ) {
         var attempt = 0
+        // True once a connection in this loop has held: from then on this is a session worth
+        // waiting for, not an address that may simply be wrong.
+        var established = false
+        // When the current run of failures began; 0 while the link is up.
+        var outageStartNs = 0L
         while (currentCoroutineContext().isActive) {
-            if (attempt == 0) publish(self, ConnectionState.Connecting(endpoint))
+            if (attempt == 0 && !established) publish(self, ConnectionState.Connecting(endpoint))
             var connectedAtNs = 0L
             val reason: String = try {
                 // F1b: re-assert the Wi-Fi binding on every attempt, not just the first.
@@ -274,16 +307,30 @@ class RrcClient @Inject constructor(
             // on every successful connect let a display that accepts and then immediately drops
             // the socket (it serves one remote at a time, say, and another is attached) flap
             // Connected/Reconnecting once a second forever, never reaching rule 2.
-            val heldMs = if (connectedAtNs == 0L) 0L else (System.nanoTime() - connectedAtNs) / 1_000_000L
-            if (heldMs >= STABLE_CONNECTION_MS) attempt = 0
+            val now = System.nanoTime()
+            val heldMs = if (connectedAtNs == 0L) 0L else (now - connectedAtNs) / 1_000_000L
+            if (heldMs >= STABLE_CONNECTION_MS) {
+                attempt = 0
+                established = true
+                outageStartNs = 0L
+            }
+            if (outageStartNs == 0L) outageStartNs = now
 
             attempt++
-            if (attempt > MAX_ATTEMPTS) {
+            val exhausted = if (established) {
+                (now - outageStartNs) / 1_000_000L >= OUTAGE_GIVE_UP_MS
+            } else {
+                attempt > MAX_ATTEMPTS
+            }
+            if (exhausted) {
                 giveUp(self, reason)
                 return
             }
             publish(self, ConnectionState.Reconnecting(endpoint, reason))
-            delay(backoffMs(attempt))
+            // Wait out the backoff — unless someone has reason to believe now is a better moment
+            // than later ([retryNow]), in which case go at once and start the backoff over.
+            val nudged = withTimeoutOrNull(backoffMs(attempt)) { retrySignal.receive() } != null
+            if (nudged) attempt = 0
         }
     }
 
@@ -386,13 +433,23 @@ class RrcClient @Inject constructor(
         const val PROBE_TIMEOUT_MS = 3_000
 
         /**
-         * Consecutive failures before the connection is declared permanently broken. With the
-         * backoff sequence (1s, 2s, 4s, 8s, 15s) and the retry connect timeout, the worst case
-         * from first failure to giving up is a couple of minutes of visible "Reconnecting" — long
-         * enough to ride out an AP reboot, short enough that a display that is actually gone
-         * returns the user to the connect screen rather than pinning them to a spinner.
+         * Consecutive failures before a connection that has **never worked** is abandoned. With
+         * the backoff sequence (1s, 2s, 4s, 8s, 15s) that is about half a minute against an
+         * address that refuses, a couple of minutes against one that silently drops packets —
+         * short enough that a mistyped or stale address returns the user to the connect screen
+         * rather than pinning them to a spinner.
          */
         const val MAX_ATTEMPTS = 5
+
+        /**
+         * How long an **established** session keeps trying to come back before it is given up.
+         *
+         * Ten minutes, because ending the session clears the picture and a chart that is a few
+         * minutes old is still worth having in front of you — the remote screen holds the last
+         * frame, marked with its age, for as long as the session lasts. Past this the display is
+         * treated as gone; the connect screen then keeps watching for it on its own.
+         */
+        const val OUTAGE_GIVE_UP_MS = 10 * 60_000L
         const val INITIAL_BACKOFF_MS = 1_000L
         const val MAX_BACKOFF_MS = 15_000L
 

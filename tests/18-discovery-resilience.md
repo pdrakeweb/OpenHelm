@@ -166,7 +166,7 @@ for it anyway.
 ## D6 — Discovery survives the display disappearing entirely — **rig B/C**
 
 **STEPS** connected and streaming, then `python scripts/fault.py net-down`; wait for the app to
-give up and land on the connect screen; then `python scripts/fault.py net-up`.
+give up (10 min for an established session) and land on the connect screen; then `python scripts/fault.py net-up`.
 
 **EXPECTED** after `net-up`, a scan (automatic on the connect screen, or via `Scan again`) finds
 the display again and auto-connects. Discovery must not have been poisoned by the outage.
