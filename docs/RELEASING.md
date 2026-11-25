@@ -17,9 +17,20 @@ workflow run number — both passed to Gradle as `-P` properties, so a local
 `./gradlew assembleDebug` is unaffected and keeps using the checked-in defaults in
 [`app/build.gradle.kts`](../app/build.gradle.kts).
 
-If a workflow run needs to be retried against a tag that already exists — for example after fixing
-a repository secret — run it manually from the Actions tab (`workflow_dispatch`) with that tag
-name, rather than deleting and re-pushing the tag.
+## Releasing without pushing a tag
+
+The workflow can also be started by hand from the Actions tab (`workflow_dispatch`): choose the
+branch to release from and enter the tag name.
+
+- **If the tag does not exist**, the workflow creates it at the head of the chosen branch, pushes
+  it, and carries on to build and publish. This is for anyone — or anything — that can start a
+  workflow but cannot push a tag. The name must be `vX.Y.Z` or `vX.Y.Z-suffix`; anything else is
+  rejected before a tag is made.
+- **If the tag already exists**, it is rebuilt and republished as it stands, whatever branch was
+  chosen. Use this to retry a run — for example after fixing a repository secret — rather than
+  deleting and re-pushing the tag.
+
+A tag the workflow creates does not trigger a second run, so a manual release builds once.
 
 ## The signing key
 
