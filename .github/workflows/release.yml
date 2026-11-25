@@ -2,6 +2,11 @@ name: Release
 
 # Cutting a release is pushing a tag: `git tag v1.2.3 && git push origin v1.2.3`. This builds both
 # APKs against that tag and publishes them on a GitHub Release. See docs/RELEASING.md.
+#
+# It can also be run by hand, which covers two cases with one input: name a tag that already exists
+# and it is rebuilt and republished; name one that does not and the workflow creates it, at the head
+# of the branch the run was started from, and then releases it. The second exists for whoever can
+# start a workflow but cannot push a tag.
 on:
   push:
     tags:
@@ -9,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to (re-)build and publish, e.g. v1.2.3"
+        description: "Tag to release, e.g. v1.2.3. Created at the head of the selected branch if it does not exist yet."
         required: true
 
 permissions:
@@ -19,19 +24,43 @@ jobs:
   build-and-release:
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve the tag being released
-        id: tag
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-          fi
-
+      # No `ref:` — a tag push checks out the tag, a manual run checks out the head of the branch
+      # it was started from. Full history and all tags, so the step below can tell whether the
+      # requested tag already exists.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ steps.tag.outputs.name }}
           fetch-depth: 0
+
+      - name: Resolve the tag being released
+        id: tag
+        # The input reaches the shell through `env:`, never by interpolation into the script: it
+        # is free text typed into a form, and pasted into a `run:` block it would be executed.
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # The same shape the push trigger accepts, checked properly: a manual run is the one
+          # path where the name has not already been filtered by `on.push.tags`.
+          if ! printf '%s' "$REQUESTED_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::'$REQUESTED_TAG' is not a release tag. Expected vX.Y.Z or vX.Y.Z-suffix."
+            exit 1
+          fi
+
+          if git rev-parse -q --verify "refs/tags/$REQUESTED_TAG" >/dev/null; then
+            echo "Tag $REQUESTED_TAG exists — rebuilding it."
+            git checkout --detach "refs/tags/$REQUESTED_TAG"
+          else
+            echo "Tag $REQUESTED_TAG does not exist — creating it at $(git rev-parse HEAD) (${GITHUB_REF_NAME})."
+            git tag "$REQUESTED_TAG"
+            # A tag pushed with the workflow's own token does not start a second run of this
+            # workflow, so the release is built exactly once: by the rest of this job.
+            git push origin "refs/tags/$REQUESTED_TAG"
+          fi
+          echo "name=$REQUESTED_TAG" >> "$GITHUB_OUTPUT"
 
       # A tag with a hyphenated suffix (v1.2.3-beta1) publishes as a GitHub prerelease; a plain
       # vX.Y.Z tag publishes as a full release.
